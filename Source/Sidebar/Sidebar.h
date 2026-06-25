@@ -23,6 +23,7 @@ class Palettes;
 class PluginEditor;
 class PlugDataParameter;
 class Sidebar;
+class ConnectionDebugPanel;
 
 namespace pd {
 class Instance;
@@ -109,6 +110,7 @@ public:
         PatchSearchPanel,
         PalettePanel,
         InspectorPanel,
+        DebugPanel,
         NumSidePanels
     };
 
@@ -122,6 +124,7 @@ public:
         SearchPanel* searchPanel,
         Palettes* palettePanel,
         Inspector* inspector,
+        ConnectionDebugPanel* debugPanel,
         CommandInput* commandInput);
 
     ~Sidebar() override;
@@ -207,6 +210,7 @@ private:
     SearchPanel* searchPanelPtr = nullptr;
     Palettes* palettePanelPtr = nullptr;
     Inspector* inspectorPtr = nullptr;
+    ConnectionDebugPanel* debugPanelPtr = nullptr;
     CommandInput* commandInputPtr = nullptr;
 
     SmallArray<ObjectParameters, 6> lastParameters;
@@ -219,7 +223,7 @@ private:
     std::unique_ptr<Component> resetInspectorButton;
 
     StringArray panelDisplayNames {
-        "Console", "Documentation Browser", "Automation Parameters", "Search", "Palettes", "Inspector"
+        "Console", "Documentation Browser", "Automation Parameters", "Search", "Palettes", "Inspector", "Debug"
     };
 
     struct PanelEntry {

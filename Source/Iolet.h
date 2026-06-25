@@ -4,6 +4,10 @@
 
 #pragma once
 
+#include "Utility/Config.h"
+#include "Utility/NVGUtils.h"
+#include "Utility/SettingsFile.h"
+
 class Connection;
 class Object;
 class Canvas;

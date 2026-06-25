@@ -45,6 +45,7 @@
 #include "Sidebar/AutomationPanel.h"
 #include "Sidebar/SearchPanel.h"
 #include "Sidebar/Palettes.h"
+#include "Sidebar/ConnectionDebugPanel.h"
 
 #if ENABLE_TESTING
 void runTests(PluginEditor* editor);
@@ -233,6 +234,23 @@ PluginEditor::PluginEditor(PluginProcessor& p)
         }
     };
 
+    debugModeButton.setClickingTogglesState(true);
+    debugModeButton.setButtonText(Icons::Message);
+    debugModeButton.setTooltip("Toggle connection debug visualisation");
+    debugModeButton.setToggleState(settingsFile->getProperty<bool>("debug_connections"), dontSendNotification);
+    debugModeButton.onClick = [this, settingsFile] {
+        bool const enabled = debugModeButton.getToggleState();
+        settingsFile->setProperty("debug_connections", enabled);
+        set_plugdata_debugging_enabled(enabled);
+        if (enabled) {
+            if (auto* s = getSidebarForPanel(Sidebar::DebugPanel)) {
+                s->showPanel(Sidebar::DebugPanel);
+                s->showSidebar(true);
+                resized();
+            }
+        }
+    };
+
     recentlyOpenedPanelSelector.setClickingTogglesState(true);
     libraryPanelSelector.setClickingTogglesState(true);
     recentlyOpenedPanelSelector.setRadioGroupId(hash("welcome_panel_selectors"));
@@ -259,13 +277,14 @@ PluginEditor::PluginEditor(PluginProcessor& p)
     searchPanel = std::make_unique<SearchPanel>(this);
     palettePanel = std::make_unique<Palettes>(this);
     inspectorPanel = std::make_unique<Inspector>();
+    debugPanel = std::make_unique<ConnectionDebugPanel>();
     commandInput = std::make_unique<CommandInput>(this);
 
     auto makeSidebar = [&](Sidebar::Side s) {
         return std::make_unique<Sidebar>(s, &p, this,
             consolePanel.get(), browserPanel.get(), automationPanel.get(),
             searchPanel.get(), palettePanel.get(), inspectorPanel.get(),
-            commandInput.get());
+            debugPanel.get(), commandInput.get());
     };
     leftSidebar = makeSidebar(Sidebar::Side::Left);
     rightSidebar = makeSidebar(Sidebar::Side::Right);
@@ -289,6 +308,7 @@ PluginEditor::PluginEditor(PluginProcessor& p)
     loadAssignment(Sidebar::PatchSearchPanel, Sidebar::Side::Right);
     loadAssignment(Sidebar::PalettePanel, Sidebar::Side::Right);
     loadAssignment(Sidebar::InspectorPanel, Sidebar::Side::Right);
+    loadAssignment(Sidebar::DebugPanel, Sidebar::Side::Right);
 
     int const leftW = settings->getProperty<int> ("left_sidebar_width");
     int const rightW = settings->getProperty<int> ("right_sidebar_width");
@@ -338,7 +358,8 @@ PluginEditor::PluginEditor(PluginProcessor& p)
              &redoButton,
              &addObjectMenuButton,
              &welcomePanelSearchButton,
-             &sidebarToggleButton }) {
+             &sidebarToggleButton,
+             &debugModeButton }) {
         addChildComponent(button);
     }
     setSize(pd->lastUIWidth, pd->lastUIHeight);
@@ -756,7 +777,8 @@ void PluginEditor::resized()
     }
 
     sidebarToggleButton.setBounds(audioToolbar->getX() - buttonSize + 12, 0, buttonSize, buttonSize);
-    welcomePanelSearchButton.setBounds(sidebarToggleButton.getX() - buttonSize - 2, 0, buttonSize, buttonSize);
+    debugModeButton.setBounds(sidebarToggleButton.getX() - buttonSize - 2, 0, buttonSize, buttonSize);
+    welcomePanelSearchButton.setBounds(debugModeButton.getX() - buttonSize - 2, 0, buttonSize, buttonSize);
 
     welcomePanelSearchInput.setBounds(libraryPanelSelector.getRight() + 10, 4, welcomePanelSearchButton.getX() - libraryPanelSelector.getRight() - 20, toolbarHeight - 4);
     repaint(); // Some outlines are dependent on whether or not the sidebars are expanded, or whether or not a patch is opened

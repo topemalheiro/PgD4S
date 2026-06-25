@@ -6,18 +6,21 @@
 
 #pragma once
 
+#include <atomic>
+#include <deque>
+
 #include <juce_animation/juce_animation.h>
 #include <m_pd.h>
 
 #include <readerwriterqueue.h>
 #include "Constants.h"
 #include "Objects/AllGuis.h"
+#include "Utility/NVGUtils.h"
 #include "Iolet.h"       // Move to impl
 #include "Pd/Instance.h" // Move to impl
 #include "Pd/MessageListener.h"
 #include "Utility/RateReducer.h"
 #include "Utility/ModifierKeyListener.h"
-#include "Utility/NVGUtils.h"
 #include "LookAndFeel.h"
 
 using PathPlan = SmallArray<Point<float>>;
@@ -27,7 +30,8 @@ class Connection final : public DrawablePath
     , public ComponentListener
     , public ChangeListener
     , public pd::MessageListener
-    , public NVGComponent {
+    , public NVGComponent
+    , private Timer {
 public:
     int inIdx;
     int outIdx;
@@ -53,6 +57,8 @@ public:
     void renderConnectionOrder(NVGcontext* nvg) const;
 
     void updatePath();
+
+    void renderDebugMessages(NVGcontext* nvg);
 
     void updateReconnectHandle();
 
@@ -106,7 +112,32 @@ public:
 
     StringArray getMessageFormated() const;
 
+    // Debug-mode message history and animation.
+    struct DebugMessage {
+        t_symbol* selector;
+        SmallArray<pd::Atom> atoms;
+        uint64_t sequenceNumber = 0;
+        double arrivalTimeMs = 0.0;
+        float progress = 0.0f; // 0.0 .. 1.0 along the cable
+    };
+
+    String formatDebugMessage(DebugMessage const& msg) const;
+
+    void setDebugModeEnabled(bool enabled);
+    bool isDebugModeEnabled() const { return plugdata_debugging_enabled(); }
+
+    // Global debug playback controls (shared by all connections)
+    static void setDebugSpeedMultiplier(float speed);
+    static float getDebugSpeedMultiplier();
+    static void setDebugPaused(bool paused);
+    static bool isDebugPaused();
+    static void debugStep();
+
+    std::deque<DebugMessage> const& getDebugMessageHistory() const { return debugMessageHistory; }
+
 private:
+    void timerCallback() override;
+
     int getMultiConnectNumber() const;
     int getNumSignalChannels() const;
     int getNumberOfConnections() const;
@@ -156,6 +187,20 @@ private:
 
     float offset = 0.0f;
     float pathLength = 0.0f;
+
+    // Debug-mode state
+    std::deque<DebugMessage> debugMessages;
+    std::deque<DebugMessage> debugMessageHistory;
+    uint64_t debugSequenceCounter = 0;
+    double lastTimerTimeMs = 0.0;
+    static constexpr size_t maxDebugMessages = 8;
+    static constexpr size_t maxDebugHistory = 64;
+    static constexpr float debugMessageDurationMs = 1200.0f;
+    static constexpr float debugStepSizeMs = 200.0f;
+
+    static std::atomic<float> debugSpeedMultiplier;
+    static std::atomic<bool> debugPaused;
+    static std::atomic<bool> debugStepPending;
 
     VBlankAnimatorUpdater updater { this };
     Animator activityStateAnimator = ValueAnimatorBuilder { }

@@ -45,6 +45,7 @@ class AutomationPanel;
 class SearchPanel;
 class Palettes;
 class Inspector;
+class ConnectionDebugPanel;
 class CommandInput;
 
 class PluginEditor final : public AudioProcessorEditor
@@ -159,6 +160,7 @@ public:
     std::unique_ptr<SearchPanel> searchPanel;
     std::unique_ptr<Palettes> palettePanel;
     std::unique_ptr<Inspector> inspectorPanel;
+    std::unique_ptr<ConnectionDebugPanel> debugPanel;
     std::unique_ptr<CommandInput> commandInput;
 
     std::unique_ptr<Sidebar> leftSidebar;
@@ -210,7 +212,7 @@ private:
 
     int const toolbarHeight = 32;
 
-    MainToolbarButton mainMenuButton, undoButton, redoButton, addObjectMenuButton, welcomePanelSearchButton, sidebarToggleButton;
+    MainToolbarButton mainMenuButton, undoButton, redoButton, addObjectMenuButton, welcomePanelSearchButton, sidebarToggleButton, debugModeButton;
     SettingsToolbarButton recentlyOpenedPanelSelector, libraryPanelSelector;
 
     SearchEditor welcomePanelSearchInput;

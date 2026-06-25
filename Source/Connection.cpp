@@ -22,6 +22,11 @@ using namespace juce::gl;
 #include "CanvasViewport.h"
 #include "Pd/Patch.h"
 #include "Components/ConnectionMessageDisplay.h"
+#include "Sidebar/ConnectionDebugPanel.h"
+
+std::atomic<float> Connection::debugSpeedMultiplier { 1.0f };
+std::atomic<bool> Connection::debugPaused { false };
+std::atomic<bool> Connection::debugStepPending { false };
 
 Connection::Connection(Canvas* parent, Iolet* s, Iolet* e, t_outconnect* oc)
     : NVGComponent(this)
@@ -208,6 +213,8 @@ void Connection::render(NVGcontext* nvg)
         nvgStroke(nvg);
         cachedPath.save(nvg);
     }
+
+    renderDebugMessages(nvg);
 
     nvgRestore(nvg);
 
@@ -490,6 +497,10 @@ void Connection::setSelected(bool const shouldBeSelected)
         // This is so resize handles can easily be hit when the connection is selected
         setAlwaysOnTop(shouldBeSelected);
         repaint();
+
+        if (selectedFlag && cnv && cnv->editor && cnv->editor->debugPanel) {
+            cnv->editor->debugPanel->updateConnection(this);
+        }
     }
 }
 
@@ -1330,6 +1341,163 @@ void Connection::receiveMessage(t_symbol* symbol, SmallArray<pd::Atom> const& at
     outobj->triggerOverlayActiveState();
     lastValue = atoms;
     lastSelector = symbol;
+
+    if (plugdata_debugging_enabled()) {
+        DebugMessage msg;
+        msg.selector = symbol;
+        msg.atoms = atoms;
+        msg.sequenceNumber = ++debugSequenceCounter;
+        msg.arrivalTimeMs = Time::getMillisecondCounterHiRes();
+        msg.progress = 0.0f;
+
+        debugMessages.push_back(msg);
+        while (debugMessages.size() > maxDebugMessages) {
+            debugMessages.pop_front();
+        }
+
+        debugMessageHistory.push_back(msg);
+        while (debugMessageHistory.size() > maxDebugHistory) {
+            debugMessageHistory.pop_front();
+        }
+
+        if (!isTimerRunning()) {
+            lastTimerTimeMs = msg.arrivalTimeMs;
+            startTimerHz(60);
+        }
+    }
+}
+
+void Connection::setDebugModeEnabled(bool const enabled)
+{
+    // Global debug state is now controlled via plugdata_debugging_enabled().
+    // This per-connection setter can be used to clear local state when toggled off.
+    if (!enabled) {
+        stopTimer();
+        debugMessages.clear();
+        debugMessageHistory.clear();
+    }
+    repaint();
+}
+
+void Connection::setDebugSpeedMultiplier(float const speed)
+{
+    debugSpeedMultiplier.store(jlimit(0.1f, 5.0f, speed));
+}
+
+float Connection::getDebugSpeedMultiplier()
+{
+    return debugSpeedMultiplier.load();
+}
+
+void Connection::setDebugPaused(bool const paused)
+{
+    debugPaused.store(paused);
+}
+
+bool Connection::isDebugPaused()
+{
+    return debugPaused.load();
+}
+
+void Connection::debugStep()
+{
+    debugStepPending.store(true);
+}
+
+void Connection::timerCallback()
+{
+    if (!plugdata_debugging_enabled() || debugMessages.empty()) {
+        stopTimer();
+        return;
+    }
+
+    auto const now = Time::getMillisecondCounterHiRes();
+    auto deltaMs = static_cast<float>(now - lastTimerTimeMs);
+    lastTimerTimeMs = now;
+
+    bool const wasStep = debugStepPending.exchange(false);
+    if (debugPaused.load() && !wasStep) {
+        return;
+    }
+
+    if (wasStep) {
+        deltaMs = debugStepSizeMs;
+    }
+
+    deltaMs *= debugSpeedMultiplier.load();
+    bool anyActive = false;
+
+    for (auto& msg : debugMessages) {
+        msg.progress = jlimit(0.0f, 1.0f, msg.progress + deltaMs / debugMessageDurationMs);
+        if (msg.progress < 1.0f)
+            anyActive = true;
+    }
+
+    while (!debugMessages.empty() && debugMessages.front().progress >= 1.0f) {
+        debugMessages.pop_front();
+    }
+
+    repaint();
+
+    if (!anyActive) {
+        stopTimer();
+    }
+}
+
+String Connection::formatDebugMessage(DebugMessage const& msg) const
+{
+    auto text = msg.selector ? String::fromUTF8(msg.selector->s_name) : String();
+    for (auto const& atom : msg.atoms) {
+        text += " " + atom.toString();
+    }
+    return text;
+}
+
+void Connection::renderDebugMessages(NVGcontext* nvg)
+{
+    if (!plugdata_debugging_enabled() || debugMessages.empty())
+        return;
+
+    auto const cableThickness = getPathWidth();
+
+    // getPath() is in parent/canvas space; shift it into this component's local space.
+    auto localPath = getPath();
+    localPath.applyTransform(AffineTransform::translation(-getX(), -getY()));
+
+    for (auto const& msg : debugMessages) {
+        auto const point = localPath.getPointAlongPath(msg.progress * pathLength);
+
+        // Draw a glowing white halo behind the dot.
+        nvgBeginPath(nvg);
+        nvgFillColor(nvg, nvgColour(Colours::white.withAlpha(0.6f)));
+        nvgCircle(nvg, point.x, point.y, cableThickness * 1.0f);
+        nvgFill(nvg);
+
+        // Draw the message dot.
+        nvgBeginPath(nvg);
+        nvgFillColor(nvg, nvgColour(Colours::white));
+        nvgCircle(nvg, point.x, point.y, cableThickness * 0.75f);
+        nvgFill(nvg);
+
+        nvgBeginPath(nvg);
+        nvgFillColor(nvg, nvgColour(PlugDataColours::dataColour));
+        nvgCircle(nvg, point.x, point.y, cableThickness * 0.45f);
+        nvgFill(nvg);
+
+        // Draw the raw message text next to the dot.
+        auto const text = formatDebugMessage(msg);
+        if (text.isNotEmpty()) {
+            nvgFontSize(nvg, 11.0f);
+            nvgFontFace(nvg, "Inter-Regular");
+            nvgTextAlign(nvg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+
+            nvgFillColor(nvg, nvgColour(PlugDataColours::canvasBackgroundColour));
+            nvgText(nvg, point.x + cableThickness + 3.0f + 1.0f, point.y + 1.0f, text.toUTF8(), nullptr);
+
+            nvgFillColor(nvg, nvgColour(Colours::white));
+            nvgText(nvg, point.x + cableThickness + 3.0f, point.y, text.toUTF8(), nullptr);
+        }
+    }
 }
 
 void ConnectionBeingCreated::scrollViewport(Component* cnvComp, MouseEvent const& e)

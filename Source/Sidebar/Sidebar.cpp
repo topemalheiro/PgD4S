@@ -24,6 +24,7 @@
 #include "AutomationPanel.h"
 #include "SearchPanel.h"
 #include "Palettes.h"
+#include "ConnectionDebugPanel.h"
 
 String Sidebar::panelIdToString(SidePanel id)
 {
@@ -40,6 +41,8 @@ String Sidebar::panelIdToString(SidePanel id)
         return "palette";
     case InspectorPanel:
         return "inspector";
+    case DebugPanel:
+        return "debug";
     default:
         return "console";
     }
@@ -59,6 +62,8 @@ Sidebar::SidePanel Sidebar::panelFromString(String const& s, SidePanel fallback)
         return PalettePanel;
     if (s == "inspector")
         return InspectorPanel;
+    if (s == "debug")
+        return DebugPanel;
     return fallback;
 }
 
@@ -83,6 +88,7 @@ Sidebar::Sidebar(Side sideIn, PluginProcessor* instance, PluginEditor* parent,
     SearchPanel* search,
     Palettes* palette,
     Inspector* insp,
+    ConnectionDebugPanel* debug,
     CommandInput* cmdInput)
     : side(sideIn)
     , editor(parent)
@@ -92,6 +98,7 @@ Sidebar::Sidebar(Side sideIn, PluginProcessor* instance, PluginEditor* parent,
     , searchPanelPtr(search)
     , palettePanelPtr(palette)
     , inspectorPtr(insp)
+    , debugPanelPtr(debug)
     , commandInputPtr(cmdInput)
 {
     inspectorAutoShow = SettingsFile::getInstance()->getProperty<bool>("inspector_auto_show");
@@ -148,6 +155,9 @@ void Sidebar::addPanel(SidePanel panel)
         break;
     case InspectorPanel:
         icon = Icons::Info;
+        break;
+    case DebugPanel:
+        icon = Icons::Message;
         break;
     default:
         break;
@@ -989,6 +999,8 @@ Component* Sidebar::getPanelComponent(SidePanel id) const
         return palettePanelPtr;
     case InspectorPanel:
         return inspectorPtr;
+    case DebugPanel:
+        return debugPanelPtr;
     default:
         return nullptr;
     }

@@ -195,6 +195,7 @@ private:
         { "sidebar_panel_search", var("right") },
         { "sidebar_panel_palette", var("right") },
         { "sidebar_panel_inspector", var("right") },
+        { "sidebar_panel_debug", var("right") },
         { "left_sidebar_width", var(250) },
         { "right_sidebar_width", var(250) },
         { "left_sidebar_hidden", var(true) },
