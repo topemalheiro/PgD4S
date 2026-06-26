@@ -253,7 +253,11 @@ bool OSUtils::isLinuxWindowMaximised(ComponentPeer* peer)
         WINDOW_STATE_BELOW = (1 << 10),
         WINDOW_STATE_DEMANDS_ATTENTION = (1 << 11),
         WINDOW_STATE_FOCUSED = (1 << 12),
-        WINDOW_STATE_SIZE = 13,
+        WINDOW_STATE_TILED_LEFT = (1 << 13),
+        WINDOW_STATE_TILED_RIGHT = (1 << 14),
+        WINDOW_STATE_TILED_TOP = (1 << 15),
+        WINDOW_STATE_TILED_BOTTOM = (1 << 16),
+        WINDOW_STATE_SIZE = 17,
     };
 
     /* state names */
@@ -270,7 +274,11 @@ bool OSUtils::isLinuxWindowMaximised(ComponentPeer* peer)
         "_NET_WM_STATE_ABOVE",
         "_NET_WM_STATE_BELOW",
         "_NET_WM_STATE_DEMANDS_ATTENTION",
-        "_NET_WM_STATE_FOCUSED"
+        "_NET_WM_STATE_FOCUSED",
+        "_NET_WM_STATE_TILED_LEFT",
+        "_NET_WM_STATE_TILED_RIGHT",
+        "_NET_WM_STATE_TILED_TOP",
+        "_NET_WM_STATE_TILED_BOTTOM"
     };
 
     auto* display = juce::XWindowSystem::getInstance()->getDisplay();
@@ -316,7 +324,15 @@ bool OSUtils::isLinuxWindowMaximised(ComponentPeer* peer)
         XFree(states);
     }
 
-    return (state & WINDOW_STATE_MAXIMIZED) != 0;
+    // Treat any compositor-driven edge state (maximized or tiled) the same as
+    // maximized so PlugData removes its shadow inset and frame extents.
+    static constexpr auto edgeManagedMask = WINDOW_STATE_MAXIMIZED_VERT
+                                          | WINDOW_STATE_MAXIMIZED_HORZ
+                                          | WINDOW_STATE_TILED_LEFT
+                                          | WINDOW_STATE_TILED_RIGHT
+                                          | WINDOW_STATE_TILED_TOP
+                                          | WINDOW_STATE_TILED_BOTTOM;
+    return (state & edgeManagedMask) != 0;
 }
 
 void OSUtils::maximiseLinuxWindow(ComponentPeer* peer, bool shouldBeMaximised)
