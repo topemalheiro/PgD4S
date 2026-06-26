@@ -334,7 +334,8 @@ private:
  */
 
 class PlugDataWindow final : public DocumentWindow
-    , public SettingsFileListener {
+    , public SettingsFileListener
+    , private Timer {
     AudioProcessorEditor* editor;
     StandalonePluginHolder* pluginHolder;
 
@@ -352,6 +353,7 @@ public:
         : DocumentWindow("plugdata", LookAndFeel::getDefaultLookAndFeel().findColour(ResizableWindow::backgroundColourId), DocumentWindow::minimiseButton | DocumentWindow::maximiseButton | DocumentWindow::closeButton, false)
         , editor(pluginEditor)
     {
+        startTimerHz(2);
         setTitleBarHeight(0);
         pluginHolder = ProjectInfo::getStandalonePluginHolder();
 
@@ -435,7 +437,18 @@ public:
 
     ~PlugDataWindow() override
     {
+        stopTimer();
         clearContentComponent();
+    }
+
+    void timerCallback() override
+    {
+#if JUCE_LINUX || JUCE_BSD
+        // Keep the maximize button synchronised with the real compositor state.
+        if (! hasPendingLinuxMaximisedState)
+            if (auto* b = getMaximiseButton())
+                b->setToggleState(isMaximised(), dontSendNotification);
+#endif
     }
 
     BorderSize<int> getBorderThickness() const override
@@ -627,6 +640,10 @@ public:
         if (!isFullScreen() && !useNativeTitlebar() && drawWindowShadow) {
             auto margin = mainComponent ? mainComponent->getMargin() : 18;
             titleBarArea = Rectangle<int>(0, 7 + margin, getWidth() - (6 + margin), 23);
+        } else if (isFullScreen() || isMaximised()) {
+            // When maximised/fullscreen, align the custom buttons flush with the
+            // title-bar background instead of leaving the normal top/right inset.
+            titleBarArea = Rectangle<int>(0, 1, getWidth() - 2, 23);
         }
 #elif JUCE_MAC
         auto const nativeWindow = SettingsFile::getInstance()->getProperty<bool>("native_window");
@@ -651,6 +668,14 @@ public:
                     content->grabKeyboardFocus();
             });
         }
+
+#if JUCE_LINUX || JUCE_BSD
+        // Keep the maximize button in sync with the real compositor state for
+        // both button clicks and compositor-driven maximize (e.g. Super+Page Up).
+        if (! hasPendingLinuxMaximisedState)
+            if (auto* b = getMaximiseButton())
+                b->setToggleState(isMaximised(), dontSendNotification);
+#endif
     }
 
 private:
@@ -661,21 +686,31 @@ private:
         pendingLinuxMaximisedState = shouldBeMaximised;
         auto const pendingStateSerial = ++pendingLinuxMaximisedStateSerial;
 
-        Timer::callAfterDelay(250, [_this = SafePointer(this), pendingStateSerial] {
+        // Poll until the compositor reports the matching real state (or a hard
+        // timeout), so the shadow margin is kept in sync during async transitions.
+        std::function<void()> poll;
+        poll = [_this = SafePointer(this), pendingStateSerial, poll]() mutable {
             if (!_this)
                 return;
 
             if (_this->pendingLinuxMaximisedStateSerial != pendingStateSerial)
                 return;
 
-            _this->hasPendingLinuxMaximisedState = false;
+            if (_this->isMaximised() == _this->pendingLinuxMaximisedState) {
+                _this->hasPendingLinuxMaximisedState = false;
 
-            if (auto* b = _this->getMaximiseButton())
-                b->setToggleState(_this->isMaximised(), dontSendNotification);
+                if (auto* b = _this->getMaximiseButton())
+                    b->setToggleState(_this->isMaximised(), dontSendNotification);
 
-            _this->resized();
-            _this->repaint();
-        });
+                _this->resized();
+                _this->repaint();
+                return;
+            }
+
+            Timer::callAfterDelay(50, poll);
+        };
+
+        Timer::callAfterDelay(50, poll);
     }
 #endif
 
@@ -722,7 +757,20 @@ private:
 
 #if JUCE_LINUX || JUCE_BSD
             if (drawWindowShadow) {
-                return owner.isMaximised() ? 0 : 18;
+                if (owner.isMaximised())
+                    return 0;
+
+                // Fallback: if the compositor has already positioned us near the
+                // top edge (panel tolerance) and we're large, assume we're
+                // maximized even before the state atom arrives. This avoids the
+                // 18 px inset on XWayland during Super+Page Up.
+                auto const screenBounds = owner.getScreenBounds();
+                if (screenBounds.getY() <= 40
+                    && screenBounds.getWidth() >= 1000
+                    && screenBounds.getHeight() >= 600)
+                    return 0;
+
+                return 18;
             } else {
                 return 0;
             }
