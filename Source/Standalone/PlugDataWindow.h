@@ -627,10 +627,6 @@ public:
         if (!isFullScreen() && !useNativeTitlebar() && drawWindowShadow) {
             auto margin = mainComponent ? mainComponent->getMargin() : 18;
             titleBarArea = Rectangle<int>(0, 7 + margin, getWidth() - (6 + margin), 23);
-        } else if (isFullScreen() || isMaximised()) {
-            // When maximised, align the custom buttons flush with the title-bar
-            // background instead of leaving the normal 7 px top padding.
-            titleBarArea = Rectangle<int>(0, 1, getWidth() - 2, 23);
         }
 #elif JUCE_MAC
         auto const nativeWindow = SettingsFile::getInstance()->getProperty<bool>("native_window");
@@ -655,14 +651,6 @@ public:
                     content->grabKeyboardFocus();
             });
         }
-
-#if JUCE_LINUX || JUCE_BSD
-        // Keep the maximize button in sync with the real compositor state for
-        // both button clicks and compositor-driven maximize (e.g. Super+Page Up).
-        if (! hasPendingLinuxMaximisedState)
-            if (auto* b = getMaximiseButton())
-                b->setToggleState(isMaximised(), dontSendNotification);
-#endif
     }
 
 private:
@@ -734,18 +722,6 @@ private:
 
 #if JUCE_LINUX || JUCE_BSD
             if (drawWindowShadow) {
-                // Even if the compositor hasn't yet delivered the maximized state flag,
-                // remove the shadow margin as soon as the window fills the usable area
-                // of its display. This prevents a temporary 18 px inset during maximize.
-                auto const screenBounds = owner.getScreenBounds();
-                if (auto const* display = Desktop::getInstance().getDisplays().getDisplayForRect(screenBounds)) {
-                    auto const workArea = display->userBounds.toNearestInt();
-                    auto const widthMatch = std::abs(screenBounds.getWidth() - workArea.getWidth()) <= 4;
-                    auto const heightMatch = std::abs(screenBounds.getHeight() - workArea.getHeight()) <= 4;
-                    if (widthMatch && heightMatch)
-                        return 0;
-                }
-
                 return owner.isMaximised() ? 0 : 18;
             } else {
                 return 0;
