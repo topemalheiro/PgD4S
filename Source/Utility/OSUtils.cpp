@@ -232,7 +232,9 @@ bool OSUtils::isLinuxWindowMaximised(ComponentPeer* peer)
 {
 #    if JUCE_WAYLAND
     if (WaylandWindowSystem::getInstance()->isWaylandAvailable()) {
-        return peer->isFullScreen();
+        if (auto* window = WaylandWindowSystem::getInstance()->getWaylandWindowForPeer (peer))
+            return WaylandWindowSystem::getInstance()->isMaximised (window);
+        return false;
     }
 #    endif
     enum window_state_t {
@@ -321,7 +323,8 @@ void OSUtils::maximiseLinuxWindow(ComponentPeer* peer, bool shouldBeMaximised)
 {
 #    if JUCE_WAYLAND
     if (WaylandWindowSystem::getInstance()->isWaylandAvailable()) {
-        peer->setFullScreen(shouldBeMaximised);
+        if (auto* window = WaylandWindowSystem::getInstance()->getWaylandWindowForPeer (peer))
+            WaylandWindowSystem::getInstance()->setMaximised (window, shouldBeMaximised);
         return;
     }
 #    endif

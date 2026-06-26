@@ -559,6 +559,11 @@ public:
                 if (!useNativeTitlebar()) {
                     OSUtils::maximiseLinuxWindow(peer, shouldBeMaximised);
                 }
+
+                // Force an immediate relayout so the shadow margin is removed
+                // and the button icon updates without waiting for the async timer.
+                resized();
+                repaint();
             } else {
                 b->setToggleState(false, dontSendNotification);
             }
