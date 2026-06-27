@@ -914,8 +914,13 @@ void PluginEditor::mouseDown(MouseEvent const& e)
 #if !JUCE_MAC && !JUCE_IOS
     if (e.getPosition().getY() < toolbarHeight) {
         if (auto* window = findParentComponentOfClass<PlugDataWindow>()) {
-            if (!window->useNativeTitlebar())
+            if (!window->useNativeTitlebar()) {
+                // Dragging a maximized/tiled window from the title bar should
+                // restore it first, otherwise the compositor clamps movement.
+                if (window->isMaximised())
+                    window->maximiseButtonPressed();
                 windowDragger.startDraggingWindow(window, e.getEventRelativeTo(window));
+            }
         }
     }
 #endif
@@ -926,11 +931,9 @@ void PluginEditor::mouseDrag(MouseEvent const& e)
     if (!ProjectInfo::isStandalone)
         return;
 #if !JUCE_MAC && !JUCE_IOS
-    if (!isMaximised) {
-        if (auto* window = findParentComponentOfClass<PlugDataWindow>()) {
-            if (!window->useNativeTitlebar())
-                windowDragger.dragWindow(window, e.getEventRelativeTo(window));
-        }
+    if (auto* window = findParentComponentOfClass<PlugDataWindow>()) {
+        if (!window->useNativeTitlebar())
+            windowDragger.dragWindow(window, e.getEventRelativeTo(window));
     }
 #endif
 }

@@ -219,9 +219,9 @@ private:
 
 #if JUCE_MAC
     Rectangle<int> unmaximisedSize;
+    bool isMaximised = false;
 #endif
 
-    bool isMaximised = false;
     bool isDraggingFile = false;
 
     static inline int numEditors = 0;
