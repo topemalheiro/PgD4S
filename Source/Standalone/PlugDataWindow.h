@@ -546,7 +546,19 @@ public:
             return pendingLinuxMaximisedState;
 
         if (auto* peer = getPeer()) {
-            return OSUtils::isLinuxWindowMaximised(peer);
+            if (OSUtils::isLinuxWindowMaximised(peer))
+                return true;
+
+            // Fallback: if the compositor has positioned us near the top edge
+            // and we're large, treat us as maximized so the shadow outline and
+            // title-bar layout stay flush instead of drawing an 18 px inset.
+            auto const screenBounds = getScreenBounds();
+            if (screenBounds.getY() <= 40
+                && screenBounds.getWidth() >= 800
+                && screenBounds.getHeight() >= 500)
+                return true;
+
+            return false;
         } else {
             return isFullScreen();
         }
