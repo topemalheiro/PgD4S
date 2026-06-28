@@ -15,6 +15,7 @@
 #include "Instance.h"
 #include "Patch.h"
 #include "MessageListener.h"
+#include "ConnectionTraceCollector.h"
 #include "Objects/ImplementationBase.h"
 #include "Utility/SettingsFile.h"
 #include "Connection.h"
@@ -257,6 +258,7 @@ struct Instance::internal {
 
 Instance::Instance()
     : messageDispatcher(std::make_unique<MessageDispatcher>())
+    , traceCollector(std::make_unique<ConnectionTraceCollector>())
     , consoleMessageHandler(std::make_unique<ConsoleMessageHandler>(this))
 {
     pd::Setup::initialisePd();
@@ -710,6 +712,7 @@ void Instance::initialisePd(String& pdlua_version)
     };
 
     register_gui_triggers(static_cast<t_pdinstance*>(instance), this, gui_trigger, &MessageDispatcher::enqueueMessage);
+    register_trace_trigger(static_cast<t_pdinstance*>(instance), this, &ConnectionTraceCollector::staticEnqueue);
 
     static bool initialised = false;
     if (!initialised) {

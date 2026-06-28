@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <deque>
+#include <optional>
 
 #include <juce_animation/juce_animation.h>
 #include <m_pd.h>
@@ -135,6 +136,10 @@ public:
 
     std::deque<DebugMessage> const& getDebugMessageHistory() const { return debugMessageHistory; }
 
+    void setScheduledMessage(DebugMessage const& msg);
+    void clearScheduledMessage();
+    bool isScheduledMessageComplete() const;
+
 private:
     void timerCallback() override;
 
@@ -191,11 +196,13 @@ private:
     // Debug-mode state
     std::deque<DebugMessage> debugMessages;
     std::deque<DebugMessage> debugMessageHistory;
+    std::optional<DebugMessage> scheduledMessage;
+    bool scheduledMessageComplete = false;
     uint64_t debugSequenceCounter = 0;
     double lastTimerTimeMs = 0.0;
     static constexpr size_t maxDebugMessages = 8;
     static constexpr size_t maxDebugHistory = 64;
-    static constexpr float debugMessageDurationMs = 1200.0f;
+    static constexpr float debugMessageDurationMs = 400.0f;
     static constexpr float debugStepSizeMs = 200.0f;
 
     static std::atomic<float> debugSpeedMultiplier;

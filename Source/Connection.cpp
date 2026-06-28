@@ -741,7 +741,10 @@ void Connection::pathChanged()
 {
     strokePath.clear();
     strokeType.createStrokedPath(strokePath, path, AffineTransform(), 1.0f);
-    setBoundsToEnclose(getDrawableBounds());
+    auto bounds = getDrawableBounds();
+    // Extra room for debug-message labels so they don't clip at component edges.
+    bounds = bounds.expanded(24.0f, 18.0f).expanded(100.0f, 0.0f);
+    setBoundsToEnclose(bounds);
     repaint();
 }
 
@@ -1350,19 +1353,23 @@ void Connection::receiveMessage(t_symbol* symbol, SmallArray<pd::Atom> const& at
         msg.arrivalTimeMs = Time::getMillisecondCounterHiRes();
         msg.progress = 0.0f;
 
-        debugMessages.push_back(msg);
-        while (debugMessages.size() > maxDebugMessages) {
-            debugMessages.pop_front();
+        // In execution-order mode the scheduler animates one message at a time,
+        // so don't add it to the free-running debugMessages queue.
+        if (!plugdata_execution_order_enabled()) {
+            debugMessages.push_back(msg);
+            while (debugMessages.size() > maxDebugMessages) {
+                debugMessages.pop_front();
+            }
+
+            if (!isTimerRunning()) {
+                lastTimerTimeMs = msg.arrivalTimeMs;
+                startTimerHz(60);
+            }
         }
 
         debugMessageHistory.push_back(msg);
         while (debugMessageHistory.size() > maxDebugHistory) {
             debugMessageHistory.pop_front();
-        }
-
-        if (!isTimerRunning()) {
-            lastTimerTimeMs = msg.arrivalTimeMs;
-            startTimerHz(60);
         }
     }
 }
@@ -1406,7 +1413,8 @@ void Connection::debugStep()
 
 void Connection::timerCallback()
 {
-    if (!plugdata_debugging_enabled() || debugMessages.empty()) {
+    bool const hasWork = plugdata_debugging_enabled() && (!debugMessages.empty() || scheduledMessage.has_value());
+    if (!hasWork) {
         stopTimer();
         return;
     }
@@ -1437,9 +1445,18 @@ void Connection::timerCallback()
         debugMessages.pop_front();
     }
 
+    if (scheduledMessage) {
+        scheduledMessage->progress = jlimit(0.0f, 1.0f, scheduledMessage->progress + deltaMs / debugMessageDurationMs);
+        if (scheduledMessage->progress >= 1.0f) {
+            scheduledMessageComplete = true;
+        } else {
+            anyActive = true;
+        }
+    }
+
     repaint();
 
-    if (!anyActive) {
+    if (!anyActive && !scheduledMessage.has_value()) {
         stopTimer();
     }
 }
@@ -1450,12 +1467,36 @@ String Connection::formatDebugMessage(DebugMessage const& msg) const
     for (auto const& atom : msg.atoms) {
         text += " " + atom.toString();
     }
+    if (text.length() > 40)
+        text = text.substring(0, 37) + "...";
     return text;
+}
+
+void Connection::setScheduledMessage(DebugMessage const& msg)
+{
+    scheduledMessage = msg;
+    scheduledMessageComplete = false;
+    if (!isTimerRunning()) {
+        lastTimerTimeMs = Time::getMillisecondCounterHiRes();
+        startTimerHz(60);
+    }
+    repaint();
+}
+
+void Connection::clearScheduledMessage()
+{
+    scheduledMessage.reset();
+    scheduledMessageComplete = false;
+}
+
+bool Connection::isScheduledMessageComplete() const
+{
+    return scheduledMessageComplete;
 }
 
 void Connection::renderDebugMessages(NVGcontext* nvg)
 {
-    if (!plugdata_debugging_enabled() || debugMessages.empty())
+    if (!plugdata_debugging_enabled() || (debugMessages.empty() && !scheduledMessage))
         return;
 
     auto const cableThickness = getPathWidth();
@@ -1464,8 +1505,11 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
     auto localPath = getPath();
     localPath.applyTransform(AffineTransform::translation(-getX(), -getY()));
 
-    for (auto const& msg : debugMessages) {
-        auto const point = localPath.getPointAlongPath(msg.progress * pathLength);
+    // Recompute path length here to avoid using a stale cached value.
+    auto const currentPathLength = localPath.getLength();
+
+    auto const drawMessage = [&](DebugMessage const& msg) {
+        auto const point = localPath.getPointAlongPath(msg.progress * currentPathLength);
 
         // Draw a glowing white halo behind the dot.
         nvgBeginPath(nvg);
@@ -1497,6 +1541,14 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
             nvgFillColor(nvg, nvgColour(Colours::white));
             nvgText(nvg, point.x + cableThickness + 3.0f, point.y, text.toUTF8(), nullptr);
         }
+    };
+
+    for (auto const& msg : debugMessages) {
+        drawMessage(msg);
+    }
+
+    if (scheduledMessage) {
+        drawMessage(*scheduledMessage);
     }
 }
 

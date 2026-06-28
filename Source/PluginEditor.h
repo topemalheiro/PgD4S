@@ -47,6 +47,7 @@ class Palettes;
 class Inspector;
 class ConnectionDebugPanel;
 class CommandInput;
+class DebugExecutionScheduler;
 
 class PluginEditor final : public AudioProcessorEditor
     , public Value::Listener
@@ -170,6 +171,7 @@ public:
 
     std::unique_ptr<Statusbar> statusbar;
     std::unique_ptr<AudioToolbar> audioToolbar;
+    std::unique_ptr<DebugExecutionScheduler> debugExecutionScheduler;
 
     Value theme;
     Value autoconnect;

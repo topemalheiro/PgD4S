@@ -46,6 +46,7 @@
 #include "Sidebar/SearchPanel.h"
 #include "Sidebar/Palettes.h"
 #include "Sidebar/ConnectionDebugPanel.h"
+#include "DebugExecutionScheduler.h"
 
 #if ENABLE_TESTING
 void runTests(PluginEditor* editor);
@@ -401,6 +402,9 @@ PluginEditor::PluginEditor(PluginProcessor& p)
               Dialogs::showOnboardingDialog(&_this->openedDialog, _this.get());
       }
     });
+
+    debugExecutionScheduler = std::make_unique<DebugExecutionScheduler>(this);
+    debugExecutionScheduler->setEnabled(settingsFile->getProperty<bool>("debug_connections"));
 
     addModifierKeyListener(&pd->keyHandler);
     startTimerHz(90);
@@ -1128,6 +1132,9 @@ void PluginEditor::setDebugConnectionsEnabled(bool const enabled, bool const ope
         statusbar->setDetectiveModeEnabled(enabled);
         statusbar->setDetectiveSpeedSliderEnabled(enabled);
     }
+
+    if (debugExecutionScheduler)
+        debugExecutionScheduler->setEnabled(enabled);
 
     if (enabled && openDebugPanel) {
         if (auto* s = getSidebarForPanel(Sidebar::DebugPanel)) {
@@ -2102,6 +2109,9 @@ void PluginEditor::broughtToFront()
 void PluginEditor::timerCallback()
 {
     pd->flushMessageQueue();
+
+    if (debugExecutionScheduler)
+        debugExecutionScheduler->update();
 }
 
 void PluginEditor::lookAndFeelChanged()

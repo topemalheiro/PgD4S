@@ -72,7 +72,9 @@ public:
             colour = PlugDataColours::toolbarTextColour.brighter(0.8f);
         }
 
-        Fonts::drawText(g, getButtonText(), getLocalBounds().reduced(2, 0), colour, 11, Justification::centred);
+        g.setColour(colour);
+        g.setFont(Fonts::getDefaultFont().withHeight(11.0f));
+        g.drawFittedText("Detective", getLocalBounds(), Justification::centred, 1);
     }
 };
 
@@ -463,7 +465,7 @@ void Statusbar::resized()
     overlayGroup->setBounds(b.removeFromLeft(34));
     b.removeFromLeft(spacing);
 
-    detectiveModeButton->setBounds(b.removeFromLeft(72));
+    detectiveModeButton->setBounds(b.removeFromLeft(64));
     b.removeFromLeft(4);
 
     detectiveSpeedSlider->setBounds(b.removeFromLeft(120));

@@ -153,6 +153,7 @@ private:
 
 class MessageListener;
 class MessageDispatcher;
+class ConnectionTraceCollector;
 class Patch;
 class Instance : public AsyncUpdater {
     struct Message {
@@ -321,6 +322,7 @@ public:
     CriticalSection const audioLock;
     CriticalSection const weakReferenceLock;
     std::unique_ptr<pd::MessageDispatcher> messageDispatcher;
+    std::unique_ptr<pd::ConnectionTraceCollector> traceCollector;
 
     // All opened patches
     SmallArray<pd::Patch::Ptr, 16> patches;
