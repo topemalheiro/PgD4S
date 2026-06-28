@@ -28,6 +28,7 @@ public:
 private:
     Connection* findConnectionForEvent(pd::ConnectionTraceEvent const& event) const;
     void scheduleNextEvent();
+    void reorderPendingEventsByOutletPriority();
 
     PluginEditor* editor;
     bool enabled = false;
