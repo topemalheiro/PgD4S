@@ -13,6 +13,7 @@
 #include "PluginEditor.h"
 #include "Canvas.h"
 #include "Connection.h"
+#include "Object.h"
 #include "Pd/Instance.h"
 
 DebugExecutionScheduler::DebugExecutionScheduler(PluginEditor* e)
@@ -133,14 +134,28 @@ void DebugExecutionScheduler::reorderPendingEventsByOutletPriority()
 
     auto [roots, _] = parseForest(0, events.size(), nullptr);
 
-    // Sort children of each node by outlet index descending: right outlets first.
+    // Sort children of each node by spatial priority: right-to-left, bottom-to-top,
+    // then by outlet index descending when the source object is the same.
     std::function<void(EventNode&)> sortNodes;
     sortNodes = [&](EventNode& node) {
         if (node.children.size() > 1) {
             std::sort(node.children.begin(), node.children.end(), [](EventNode const& a, EventNode const& b) {
+                auto const getSourcePos = [](EventNode const& n) -> Point<float> {
+                    if (n.connection && n.connection->outobj)
+                        return n.connection->outobj->getBounds().toFloat().getCentre();
+                    return { 0.0f, 0.0f };
+                };
+
+                Point<float> const posA = getSourcePos(a);
+                Point<float> const posB = getSourcePos(b);
+                if (posA.x != posB.x)
+                    return posA.x > posB.x; // rightmost source first
+                if (posA.y != posB.y)
+                    return posA.y > posB.y; // bottom source first
+
                 int const outA = a.connection ? a.connection->outIdx : 0;
                 int const outB = b.connection ? b.connection->outIdx : 0;
-                return outA > outB;
+                return outA > outB; // right outlet first
             });
         }
         for (auto& child : node.children)
