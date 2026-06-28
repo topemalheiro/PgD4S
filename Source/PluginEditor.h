@@ -142,6 +142,8 @@ public:
 
     void movePanelToSide(Sidebar::SidePanel panel, Sidebar::Side targetSide);
 
+    void setDebugConnectionsEnabled(bool enabled, bool openDebugPanel = true);
+
     void showCalloutArea(bool shouldBeVisible);
     Component* getCalloutAreaComponent();
 

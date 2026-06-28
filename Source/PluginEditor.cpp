@@ -238,17 +238,8 @@ PluginEditor::PluginEditor(PluginProcessor& p)
     debugModeButton.setButtonText(Icons::Message);
     debugModeButton.setTooltip("Toggle connection debug visualisation");
     debugModeButton.setToggleState(settingsFile->getProperty<bool>("debug_connections"), dontSendNotification);
-    debugModeButton.onClick = [this, settingsFile] {
-        bool const enabled = debugModeButton.getToggleState();
-        settingsFile->setProperty("debug_connections", enabled);
-        set_plugdata_debugging_enabled(enabled);
-        if (enabled) {
-            if (auto* s = getSidebarForPanel(Sidebar::DebugPanel)) {
-                s->showPanel(Sidebar::DebugPanel);
-                s->showSidebar(true);
-                resized();
-            }
-        }
+    debugModeButton.onClick = [this] {
+        setDebugConnectionsEnabled(debugModeButton.getToggleState());
     };
 
     recentlyOpenedPanelSelector.setClickingTogglesState(true);
@@ -1123,6 +1114,27 @@ void PluginEditor::valueChanged(Value& v)
     if (v.refersToSameSourceAs(theme)) {
         pd->setTheme(theme.toString());
         getTopLevelComponent()->repaint();
+    }
+}
+
+void PluginEditor::setDebugConnectionsEnabled(bool const enabled, bool const openDebugPanel)
+{
+    auto* settingsFile = SettingsFile::getInstance();
+    settingsFile->setProperty("debug_connections", enabled);
+    set_plugdata_debugging_enabled(enabled);
+
+    debugModeButton.setToggleState(enabled, dontSendNotification);
+    if (statusbar) {
+        statusbar->setDetectiveModeEnabled(enabled);
+        statusbar->setDetectiveSpeedSliderEnabled(enabled);
+    }
+
+    if (enabled && openDebugPanel) {
+        if (auto* s = getSidebarForPanel(Sidebar::DebugPanel)) {
+            s->showPanel(Sidebar::DebugPanel);
+            s->showSidebar(true);
+            resized();
+        }
     }
 }
 

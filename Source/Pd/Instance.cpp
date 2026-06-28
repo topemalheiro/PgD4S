@@ -17,6 +17,7 @@
 #include "MessageListener.h"
 #include "Objects/ImplementationBase.h"
 #include "Utility/SettingsFile.h"
+#include "Connection.h"
 
 extern "C" {
 
@@ -751,6 +752,7 @@ void Instance::initialisePd(String& pdlua_version)
     libpd_set_verbose(0);
 
     set_plugdata_debugging_enabled(SettingsFile::getInstance()->getProperty<bool>("debug_connections"));
+    Connection::setDebugSpeedMultiplier(SettingsFile::getInstance()->getProperty<float>("debug_message_speed"));
 }
 
 int Instance::getBlockSize()

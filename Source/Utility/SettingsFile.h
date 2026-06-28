@@ -143,6 +143,7 @@ private:
         { "limiter_threshold", var(1) },
         { "protected", var(true) },
         { "debug_connections", var(true) },
+        { "debug_message_speed", var(1.0f) },
         { "internal_synth", var(0) },
         { "grid_enabled", var(true) },
         { "grid_type", var(6) },

@@ -9,6 +9,7 @@
 #include "Connection.h"
 #include "LookAndFeel.h"
 #include "Utility/Fonts.h"
+#include "Utility/SettingsFile.h"
 
 ConnectionDebugPanel::ConnectionDebugPanel()
     : titleLabel("Debug Messages", "Debug Messages")
@@ -27,9 +28,11 @@ ConnectionDebugPanel::ConnectionDebugPanel()
 
     addAndMakeVisible(speedSlider);
     speedSlider.setRange(0.1, 5.0, 0.1);
-    speedSlider.setValue(Connection::getDebugSpeedMultiplier(), dontSendNotification);
+    speedSlider.setValue(SettingsFile::getInstance()->getProperty<float>("debug_message_speed"), dontSendNotification);
     speedSlider.onValueChange = [this] {
-        Connection::setDebugSpeedMultiplier(static_cast<float>(speedSlider.getValue()));
+        auto const speed = static_cast<float>(speedSlider.getValue());
+        Connection::setDebugSpeedMultiplier(speed);
+        SettingsFile::getInstance()->setProperty("debug_message_speed", speed);
     };
 
     addAndMakeVisible(playPauseButton);

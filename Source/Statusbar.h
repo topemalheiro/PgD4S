@@ -30,6 +30,8 @@ public:
     void updateZoomLevel() { triggerAsyncUpdate(); }
 
     void setEditButtonState(bool locked, bool present = false);
+    void setDetectiveModeEnabled(bool enabled);
+    void setDetectiveSpeedSliderEnabled(bool enabled);
 
     static constexpr int statusbarHeight = 30;
     float currentZoomLevel = 100.0f;
@@ -50,6 +52,8 @@ private:
     std::unique_ptr<StatusbarButtonGroup> gridGroup;
     std::unique_ptr<StatusbarButtonGroup> overlayGroup;
     std::unique_ptr<StatusbarButtonGroup> editModeGroup;
+    std::unique_ptr<TextButton> detectiveModeButton;
+    std::unique_ptr<Slider> detectiveSpeedSlider;
 
     bool cachedRenderingEnabled = false;
 

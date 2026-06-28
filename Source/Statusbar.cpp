@@ -16,6 +16,7 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Canvas.h"
+#include "Connection.h"
 #include "CanvasViewport.h"
 
 #include "Dialogs/OverlayDisplaySettings.h"
@@ -54,6 +55,25 @@ public:
 
     SmallIconButton mainButton;
     SmallIconButton chevron = SmallIconButton(Icons::ThinDown);
+};
+
+class DetectiveModeButton final : public TextButton {
+public:
+    using TextButton::TextButton;
+
+    void paint(Graphics& g) override
+    {
+        auto colour = PlugDataColours::toolbarTextColour;
+        if (!isEnabled()) {
+            colour = Colours::grey;
+        } else if (getToggleState()) {
+            colour = PlugDataColours::toolbarActiveColour;
+        } else if (isMouseOver()) {
+            colour = PlugDataColours::toolbarTextColour.brighter(0.8f);
+        }
+
+        Fonts::drawText(g, getButtonText(), getLocalBounds().reduced(2, 0), colour, 11, Justification::centred);
+    }
 };
 
 class ZoomLabel final : public Component
@@ -324,6 +344,27 @@ Statusbar::Statusbar(PluginProcessor* processor, PluginEditor* e)
         editor->showCalloutBox(std::move(modePicker), editModeGroup->chevron.getScreenBounds());
     };
 
+    detectiveModeButton = std::make_unique<DetectiveModeButton>("Detective");
+    addAndMakeVisible(*detectiveModeButton);
+    detectiveModeButton->setClickingTogglesState(true);
+    detectiveModeButton->setToggleState(SettingsFile::getInstance()->getProperty<bool>("debug_connections"), dontSendNotification);
+    detectiveModeButton->setTooltip("Toggle connection debug visualisation");
+    detectiveModeButton->onClick = [this] {
+        editor->setDebugConnectionsEnabled(detectiveModeButton->getToggleState(), false);
+    };
+
+    detectiveSpeedSlider = std::make_unique<Slider>(Slider::LinearHorizontal, Slider::NoTextBox);
+    addAndMakeVisible(*detectiveSpeedSlider);
+    detectiveSpeedSlider->setRange(0.1, 5.0, 0.1);
+    detectiveSpeedSlider->setValue(Connection::getDebugSpeedMultiplier(), dontSendNotification);
+    detectiveSpeedSlider->setTooltip("Debug message travel speed");
+    detectiveSpeedSlider->setEnabled(detectiveModeButton->getToggleState());
+    detectiveSpeedSlider->onValueChange = [this] {
+        auto const speed = static_cast<float>(detectiveSpeedSlider->getValue());
+        Connection::setDebugSpeedMultiplier(speed);
+        SettingsFile::getInstance()->setProperty("debug_message_speed", speed);
+    };
+
     zoomSelector->setTooltip("Zoom level");
     zoomSelector->setMenuTooltip("Zoom options");
     gridGroup->setTooltip("Toggle grid", "Grid settings");
@@ -363,6 +404,18 @@ void Statusbar::setEditButtonState(bool locked, bool present)
     }
 }
 
+void Statusbar::setDetectiveModeEnabled(bool enabled)
+{
+    if (detectiveModeButton)
+        detectiveModeButton->setToggleState(enabled, dontSendNotification);
+}
+
+void Statusbar::setDetectiveSpeedSliderEnabled(bool enabled)
+{
+    if (detectiveSpeedSlider)
+        detectiveSpeedSlider->setEnabled(enabled);
+}
+
 void Statusbar::paint(Graphics& g)
 {
     if (editor->usesFloatingPanels()) {
@@ -390,6 +443,7 @@ void Statusbar::paint(Graphics& g)
 
     drawSep(*zoomSelector);
     drawSep(*overlayGroup);
+    drawSep(*detectiveSpeedSlider);
 }
 
 void Statusbar::resized()
@@ -407,6 +461,12 @@ void Statusbar::resized()
     b.removeFromLeft(spacing);
 
     overlayGroup->setBounds(b.removeFromLeft(34));
+    b.removeFromLeft(spacing);
+
+    detectiveModeButton->setBounds(b.removeFromLeft(72));
+    b.removeFromLeft(4);
+
+    detectiveSpeedSlider->setBounds(b.removeFromLeft(120));
     b.removeFromLeft(spacing);
 
     editModeGroup->setBounds(b.removeFromLeft(34));
