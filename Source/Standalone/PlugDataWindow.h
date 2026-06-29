@@ -444,6 +444,10 @@ public:
     void timerCallback() override
     {
 #if JUCE_LINUX || JUCE_BSD
+        // Once the window is visible, allow the geometry fallback to be used.
+        if (!linuxMaximiseFallbackReady && isShowing())
+            linuxMaximiseFallbackReady = true;
+
         // Keep the maximize button synchronised with the real compositor state.
         if (! hasPendingLinuxMaximisedState)
             if (auto* b = getMaximiseButton())
@@ -545,23 +549,7 @@ public:
         if (hasPendingLinuxMaximisedState)
             return pendingLinuxMaximisedState;
 
-        if (auto* peer = getPeer()) {
-            if (OSUtils::isLinuxWindowMaximised(peer))
-                return true;
-
-            // Fallback: if the compositor has positioned us near the top edge
-            // and we're large, treat us as maximized so the shadow outline and
-            // title-bar layout stay flush instead of drawing an 18 px inset.
-            auto const screenBounds = getScreenBounds();
-            if (screenBounds.getY() <= 40
-                && screenBounds.getWidth() >= 800
-                && screenBounds.getHeight() >= 500)
-                return true;
-
-            return false;
-        } else {
-            return isFullScreen();
-        }
+        return queryCompositorMaximisedState();
 #else
         return isFullScreen();
 #endif
@@ -572,12 +560,67 @@ public:
         return SettingsFile::getInstance()->getProperty<bool>("native_window");
     }
 
+#if JUCE_LINUX || JUCE_BSD
+    /** Returns the real compositor maximize/tiled state without any geometry
+        fallback and without the pending-state override. */
+    bool queryCompositorMaximisedState() const
+    {
+        if (auto* peer = getPeer())
+            return OSUtils::isLinuxWindowMaximised(peer);
+
+        return false;
+    }
+
+    /** Returns true when the window should draw itself as an edge-managed
+        (maximized/tiled) window. This includes the real compositor state plus
+        a strict geometry fallback that only fires once the window has been
+        placed, so a large centered window is not mistaken for a maximized one. */
+    bool isWindowEdgeManaged() const
+    {
+        if (isFullScreen())
+            return true;
+
+        if (queryCompositorMaximisedState())
+            return true;
+
+        if (!linuxMaximiseFallbackReady)
+            return false;
+
+        auto const screenBounds = getScreenBounds();
+        if (auto* display = Desktop::getInstance().getDisplays().getDisplayForRect(screenBounds)) {
+            auto const workArea = display->userBounds.toNearestInt();
+            constexpr int tolerance = 40;
+
+            return std::abs(workArea.getX() - screenBounds.getX()) <= tolerance
+                && std::abs(workArea.getY() - screenBounds.getY()) <= tolerance
+                && (workArea.getWidth() - screenBounds.getWidth()) <= tolerance
+                && (workArea.getHeight() - screenBounds.getHeight()) <= tolerance;
+        }
+
+        return false;
+    }
+
+    Rectangle<int> getDisplayWorkArea() const
+    {
+        if (auto* display = Desktop::getInstance().getDisplays().getDisplayForRect(getScreenBounds()))
+            return display->userBounds.toNearestInt();
+
+        return Desktop::getInstance().getDisplays().getPrimaryDisplay()->userBounds.toNearestInt();
+    }
+#endif
+
     void maximiseButtonPressed() override
     {
 #if JUCE_LINUX || JUCE_BSD
         if (auto* b = getMaximiseButton()) {
             if (auto* peer = getPeer()) {
                 bool shouldBeMaximised = !isMaximised();
+
+                // Remember the windowed bounds so we can restore to them even if
+                // the compositor does not honor the unmaximize request.
+                if (shouldBeMaximised)
+                    restoreBounds = getBounds();
+
                 setPendingLinuxMaximisedState(shouldBeMaximised);
                 b->setToggleState(shouldBeMaximised, dontSendNotification);
 
@@ -603,7 +646,7 @@ public:
 #if JUCE_LINUX || JUCE_BSD
     void paint(Graphics& g) override
     {
-        if (drawWindowShadow && !useNativeTitlebar() && !isMaximised()) {
+        if (drawWindowShadow && !useNativeTitlebar() && !isWindowEdgeManaged()) {
             StackShadow::drawShadowForRect(g, getLocalBounds().reduced(20, 20), 18, Corners::windowCornerRadius, isActiveWindow() ? 0.42f : 0.2f);
         }
     }
@@ -618,7 +661,7 @@ public:
             g.drawRect(0, 0, getWidth(), getHeight());
         }
 #    else
-        if (drawWindowShadow && !useNativeTitlebar() && !isMaximised()) {
+        if (drawWindowShadow && !useNativeTitlebar() && !isWindowEdgeManaged()) {
             g.setColour(PlugDataColours::outlineColour.withAlpha(isActiveWindow() ? 1.0f : 0.5f));
             g.drawRoundedRectangle(18, 18, getWidth() - 36, getHeight() - 36, Corners::windowCornerRadius, 1.0f);
         } else if (drawWindowShadow && !useNativeTitlebar()) {
@@ -652,8 +695,8 @@ public:
         if (!isFullScreen() && !useNativeTitlebar() && drawWindowShadow) {
             auto margin = mainComponent ? mainComponent->getMargin() : 18;
             titleBarArea = Rectangle<int>(0, 7 + margin, getWidth() - (6 + margin), 23);
-        } else if (isFullScreen() || isMaximised()) {
-            // When maximised/fullscreen, align the custom buttons flush with the
+        } else if (isFullScreen() || isWindowEdgeManaged()) {
+            // When edge-managed/fullscreen, align the custom buttons flush with the
             // title-bar background instead of leaving the normal top/right inset.
             titleBarArea = Rectangle<int>(0, 1, getWidth() - 2, 23);
         }
@@ -700,16 +743,31 @@ private:
 
         // Poll until the compositor reports the matching real state (or a hard
         // timeout), so the shadow margin is kept in sync during async transitions.
+        int attempts = 0;
         std::function<void()> poll;
-        poll = [_this = SafePointer(this), pendingStateSerial, poll]() mutable {
+        poll = [_this = SafePointer(this), pendingStateSerial, attempts, poll]() mutable {
             if (!_this)
                 return;
 
             if (_this->pendingLinuxMaximisedStateSerial != pendingStateSerial)
                 return;
 
-            if (_this->isMaximised() == _this->pendingLinuxMaximisedState) {
+            bool const compositorMatches = _this->queryCompositorMaximisedState() == _this->pendingLinuxMaximisedState;
+            bool const timedOut = ++attempts > 30; // ~1.5 s
+
+            if (compositorMatches || timedOut) {
                 _this->hasPendingLinuxMaximisedState = false;
+
+                // If the compositor ignored the request and this is a custom
+                // (non-native) window, apply the maximize/restore bounds ourselves.
+                if (timedOut && !compositorMatches && !_this->useNativeTitlebar()) {
+                    if (_this->pendingLinuxMaximisedState) {
+                        _this->restoreBounds = _this->getBounds();
+                        _this->setBoundsConstrained(_this->getDisplayWorkArea());
+                    } else if (!_this->restoreBounds.isEmpty()) {
+                        _this->setBoundsConstrained(_this->restoreBounds);
+                    }
+                }
 
                 if (auto* b = _this->getMaximiseButton())
                     b->setToggleState(_this->isMaximised(), dontSendNotification);
@@ -769,20 +827,7 @@ private:
 
 #if JUCE_LINUX || JUCE_BSD
             if (drawWindowShadow) {
-                if (owner.isMaximised())
-                    return 0;
-
-                // Fallback: if the compositor has already positioned us near the
-                // top edge (panel tolerance) and we're large, assume we're
-                // maximized even before the state atom arrives. This avoids the
-                // 18 px inset on XWayland during Super+Page Up.
-                auto const screenBounds = owner.getScreenBounds();
-                if (screenBounds.getY() <= 40
-                    && screenBounds.getWidth() >= 1000
-                    && screenBounds.getHeight() >= 600)
-                    return 0;
-
-                return 18;
+                return owner.isWindowEdgeManaged() ? 0 : 18;
             } else {
                 return 0;
             }
@@ -909,6 +954,13 @@ private:
     bool hasPendingLinuxMaximisedState = false;
     bool pendingLinuxMaximisedState = false;
     int pendingLinuxMaximisedStateSerial = 0;
+
+    // Last windowed bounds, used when the compositor doesn't restore size on unmaximize.
+    Rectangle<int> restoreBounds;
+
+    // Geometry fallback for edge-managed state is disabled until the window has
+    // been visible for a timer tick, to avoid false positives during startup.
+    bool linuxMaximiseFallbackReady = false;
 #endif
 
 public:
