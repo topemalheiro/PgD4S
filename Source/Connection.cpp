@@ -43,7 +43,7 @@ AttributedString makeDebugMessageAttributedString(String const& text)
     attributedText.setJustification(Justification::centredLeft);
     attributedText.setLineSpacing(1.08f);
     attributedText.setWordWrap(AttributedString::byChar);
-    attributedText.append(text, Fonts::getDefaultFont().withHeight(debugBubbleFontHeight), PlugDataColours::canvasTextColour);
+    attributedText.append(text, Fonts::getDefaultFont().withHeight(debugBubbleFontHeight), PlugDataColours::panelTextColour);
     return attributedText;
 }
 
@@ -67,19 +67,23 @@ Rectangle<float> placeDebugBubble(Rectangle<float> const& visibleArea, Point<flo
     auto const leftX = point.x - width - offset;
     if (rightX + width <= visibleArea.getRight() || leftX < visibleArea.getX()) {
         bubble.setX(rightX);
-    } else {
+    } else if (leftX >= visibleArea.getX()) {
         bubble.setX(leftX);
+    } else {
+        bubble.setX(jlimit(visibleArea.getX(), visibleArea.getRight() - width, rightX));
     }
 
     auto const aboveY = point.y - height - offset;
     auto const belowY = point.y + offset;
     if (aboveY >= visibleArea.getY() || belowY + height > visibleArea.getBottom()) {
         bubble.setY(aboveY);
-    } else {
+    } else if (belowY + height <= visibleArea.getBottom()) {
         bubble.setY(belowY);
+    } else {
+        bubble.setY(jlimit(visibleArea.getY(), visibleArea.getBottom() - height, belowY));
     }
 
-    return bubble;
+    return bubble.constrainedWithin(visibleArea);
 }
 
 Rectangle<float> getDebugBubbleBounds(Rectangle<float> const& visibleArea, Point<float> const& point, String const& text, float const offset)
@@ -93,7 +97,7 @@ Rectangle<float> getDebugBubbleBounds(Rectangle<float> const& visibleArea, Point
     auto const maxBubbleWidth = jlimit(debugBubbleMinWidth, debugBubbleMaxWidth, visibleArea.getWidth() - 16.0f);
     auto const bubbleWidth = jmax(1.0f, jmin(layout.getWidth() + debugBubblePaddingX * 2.0f, maxBubbleWidth));
     auto const bubbleHeight = jmax(1.0f, layout.getHeight() + debugBubblePaddingY * 2.0f);
-    return placeDebugBubble(visibleArea, point, bubbleWidth, bubbleHeight, offset).expanded(debugBubbleOutlineWidth);
+    return placeDebugBubble(visibleArea, point, bubbleWidth, bubbleHeight, offset).expanded(debugBubbleOutlineWidth).constrainedWithin(visibleArea);
 }
 
 void renderDebugBubbleText(NVGcontext* nvg, Rectangle<int> const& bubbleBounds, String const& text)
@@ -299,8 +303,6 @@ void Connection::render(NVGcontext* nvg)
         nvgStroke(nvg);
         cachedPath.save(nvg);
     }
-
-    renderDebugMessages(nvg);
 
     nvgRestore(nvg);
 
@@ -1620,8 +1622,10 @@ Rectangle<float> Connection::getDebugMessageBounds() const
 
 void Connection::updateDebugBounds()
 {
-    if (inlet && outlet)
-        setBoundsToEnclose(getDebugMessageBounds());
+    if (cnv)
+        cnv->repaint(getDebugMessageBounds().toNearestIntEdges().expanded(4));
+
+    repaint();
 }
 
 void Connection::renderDebugMessages(NVGcontext* nvg)
@@ -1641,7 +1645,6 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
 
     auto const drawMessage = [&](DebugMessage const& msg) {
         auto const point = pathToUse.getPointAlongPath(msg.progress * currentPathLength);
-        auto const pointLocal = point - Point<float>(static_cast<float>(getX()), static_cast<float>(getY()));
 
         // Draw the raw message text inside a wrapped bubble.
         auto const text = formatDebugMessage(msg);
@@ -1651,9 +1654,9 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
 
             nvgBeginPath(nvg);
             nvgRoundedRect(nvg, bubbleBounds.getX(), bubbleBounds.getY(), bubbleBounds.getWidth(), bubbleBounds.getHeight(), 6.0f);
-            nvgFillColor(nvg, nvgColour(PlugDataColours::dialogBackgroundColour.withAlpha(0.92f)));
+            nvgFillColor(nvg, nvgColour(Colours::white.withAlpha(0.08f)));
             nvgFill(nvg);
-            nvgStrokeColor(nvg, nvgColour(PlugDataColours::outlineColour.withAlpha(0.45f)));
+            nvgStrokeColor(nvg, nvgColour(Colours::white.withAlpha(0.24f)));
             nvgStrokeWidth(nvg, debugBubbleOutlineWidth);
             nvgStroke(nvg);
 
@@ -1663,18 +1666,18 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
         // Draw a glowing white halo behind the dot.
         nvgBeginPath(nvg);
         nvgFillColor(nvg, nvgColour(Colours::white.withAlpha(0.6f)));
-        nvgCircle(nvg, pointLocal.x, pointLocal.y, cableThickness * 1.0f);
+        nvgCircle(nvg, point.x, point.y, cableThickness * 1.0f);
         nvgFill(nvg);
 
         // Draw the message dot on top of the bubble.
         nvgBeginPath(nvg);
         nvgFillColor(nvg, nvgColour(Colours::white));
-        nvgCircle(nvg, pointLocal.x, pointLocal.y, cableThickness * 0.75f);
+        nvgCircle(nvg, point.x, point.y, cableThickness * 0.75f);
         nvgFill(nvg);
 
         nvgBeginPath(nvg);
         nvgFillColor(nvg, nvgColour(PlugDataColours::dataColour));
-        nvgCircle(nvg, pointLocal.x, pointLocal.y, cableThickness * 0.45f);
+        nvgCircle(nvg, point.x, point.y, cableThickness * 0.45f);
         nvgFill(nvg);
     };
 

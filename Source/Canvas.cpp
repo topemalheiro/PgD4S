@@ -739,6 +739,13 @@ void Canvas::performRender(NVGcontext* nvg, Rectangle<int> invalidRegion)
     if (objectsDistributeResizer)
         objectsDistributeResizer->render(nvg);
 
+    for (auto* connection : connections) {
+        if (connection && connection->isVisible()) {
+            NVGScopedState scopedState(nvg);
+            connection->renderDebugMessages(nvg);
+        }
+    }
+
     nvgRestore(nvg);
 
     // Draw scrollbars
@@ -774,7 +781,7 @@ void Canvas::renderAllConnections(NVGcontext* nvg, Rectangle<int> const area)
 
     for (auto* connection : connections) {
         NVGScopedState scopedState(nvg);
-        if ((connection->getBounds().intersects(area) || connection->intersectsRectangle(area)) && connection->isVisible()) {
+        if (connection->intersectsRectangle(area) && connection->isVisible()) {
             if (connection->isMouseHovering())
                 hovered = connection;
             else if (!connection->isSelected())
