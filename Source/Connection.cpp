@@ -28,6 +28,92 @@ std::atomic<float> Connection::debugSpeedMultiplier { 1.0f };
 std::atomic<bool> Connection::debugPaused { false };
 std::atomic<bool> Connection::debugStepPending { false };
 
+namespace {
+constexpr float debugBubblePaddingX = 8.0f;
+constexpr float debugBubblePaddingY = 6.0f;
+constexpr float debugBubbleOutlineWidth = 1.0f;
+constexpr float debugBubbleFontHeight = 11.0f;
+constexpr float debugBubbleGap = 10.0f;
+constexpr float debugBubbleMinWidth = 240.0f;
+constexpr float debugBubbleMaxWidth = 560.0f;
+
+AttributedString makeDebugMessageAttributedString(String const& text)
+{
+    AttributedString attributedText;
+    attributedText.setJustification(Justification::centredLeft);
+    attributedText.setLineSpacing(1.08f);
+    attributedText.setWordWrap(AttributedString::byChar);
+    attributedText.append(text, Fonts::getDefaultFont().withHeight(debugBubbleFontHeight), PlugDataColours::canvasTextColour);
+    return attributedText;
+}
+
+TextLayout createDebugMessageLayout(String const& text, float const maxLayoutWidth)
+{
+    TextLayout layout;
+
+    if (text.isEmpty())
+        return layout;
+
+    auto attributedText = makeDebugMessageAttributedString(text);
+    layout.createLayout(attributedText, jmax(1.0f, maxLayoutWidth));
+    return layout;
+}
+
+Rectangle<float> placeDebugBubble(Rectangle<float> const& visibleArea, Point<float> const& point, float const width, float const height, float const offset)
+{
+    auto bubble = Rectangle<float>(0.0f, 0.0f, width, height);
+
+    auto const rightX = point.x + offset;
+    auto const leftX = point.x - width - offset;
+    if (rightX + width <= visibleArea.getRight() || leftX < visibleArea.getX()) {
+        bubble.setX(rightX);
+    } else {
+        bubble.setX(leftX);
+    }
+
+    auto const aboveY = point.y - height - offset;
+    auto const belowY = point.y + offset;
+    if (aboveY >= visibleArea.getY() || belowY + height > visibleArea.getBottom()) {
+        bubble.setY(aboveY);
+    } else {
+        bubble.setY(belowY);
+    }
+
+    return bubble;
+}
+
+Rectangle<float> getDebugBubbleBounds(Rectangle<float> const& visibleArea, Point<float> const& point, String const& text, float const offset)
+{
+    if (text.isEmpty() || visibleArea.isEmpty())
+        return {};
+
+    auto const layoutWidth = jlimit(debugBubbleMinWidth, debugBubbleMaxWidth, visibleArea.getWidth() - 48.0f);
+    auto layout = createDebugMessageLayout(text, layoutWidth);
+
+    auto const maxBubbleWidth = jlimit(debugBubbleMinWidth, debugBubbleMaxWidth, visibleArea.getWidth() - 16.0f);
+    auto const bubbleWidth = jmax(1.0f, jmin(layout.getWidth() + debugBubblePaddingX * 2.0f, maxBubbleWidth));
+    auto const bubbleHeight = jmax(1.0f, layout.getHeight() + debugBubblePaddingY * 2.0f);
+    return placeDebugBubble(visibleArea, point, bubbleWidth, bubbleHeight, offset).expanded(debugBubbleOutlineWidth);
+}
+
+void renderDebugBubbleText(NVGcontext* nvg, Rectangle<int> const& bubbleBounds, String const& text)
+{
+    if (text.isEmpty() || bubbleBounds.isEmpty())
+        return;
+
+    auto const textBounds = Rectangle<float>(debugBubblePaddingX, debugBubblePaddingY,
+        jmax(1.0f, static_cast<float>(bubbleBounds.getWidth()) - debugBubblePaddingX * 2.0f),
+        jmax(1.0f, static_cast<float>(bubbleBounds.getHeight()) - debugBubblePaddingY * 2.0f));
+
+    NVGImage textImage(nvg, bubbleBounds.getWidth(), bubbleBounds.getHeight(), [text, textBounds](Graphics& g) {
+        auto layout = createDebugMessageLayout(text, textBounds.getWidth());
+        layout.draw(g, textBounds);
+    });
+
+    textImage.render(nvg, bubbleBounds, true);
+}
+}
+
 Connection::Connection(Canvas* parent, Iolet* s, Iolet* e, t_outconnect* oc)
     : NVGComponent(this)
     , inlet(s->isInlet() ? s : e)
@@ -741,10 +827,7 @@ void Connection::pathChanged()
 {
     strokePath.clear();
     strokeType.createStrokedPath(strokePath, path, AffineTransform(), 1.0f);
-    auto bounds = getDrawableBounds();
-    // Extra room for debug-message labels so they don't clip at component edges.
-    bounds = bounds.expanded(24.0f, 18.0f).expanded(100.0f, 0.0f);
-    setBoundsToEnclose(bounds);
+    updateDebugBounds();
     repaint();
 }
 
@@ -1371,6 +1454,8 @@ void Connection::receiveMessage(t_symbol* symbol, SmallArray<pd::Atom> const& at
         while (debugMessageHistory.size() > maxDebugHistory) {
             debugMessageHistory.pop_front();
         }
+
+        updateDebugBounds();
     }
 }
 
@@ -1382,7 +1467,10 @@ void Connection::setDebugModeEnabled(bool const enabled)
         stopTimer();
         debugMessages.clear();
         debugMessageHistory.clear();
+        scheduledMessage.reset();
+        scheduledMessageComplete = false;
     }
+    updateDebugBounds();
     repaint();
 }
 
@@ -1454,6 +1542,7 @@ void Connection::timerCallback()
         }
     }
 
+    updateDebugBounds();
     repaint();
 
     if (!anyActive && !scheduledMessage.has_value()) {
@@ -1467,8 +1556,6 @@ String Connection::formatDebugMessage(DebugMessage const& msg) const
     for (auto const& atom : msg.atoms) {
         text += " " + atom.toString();
     }
-    if (text.length() > 40)
-        text = text.substring(0, 37) + "...";
     return text;
 }
 
@@ -1480,6 +1567,7 @@ void Connection::setScheduledMessage(DebugMessage const& msg)
         lastTimerTimeMs = Time::getMillisecondCounterHiRes();
         startTimerHz(60);
     }
+    updateDebugBounds();
     repaint();
 }
 
@@ -1487,11 +1575,53 @@ void Connection::clearScheduledMessage()
 {
     scheduledMessage.reset();
     scheduledMessageComplete = false;
+    updateDebugBounds();
+    repaint();
 }
 
 bool Connection::isScheduledMessageComplete() const
 {
     return scheduledMessageComplete;
+}
+
+Rectangle<float> Connection::getDebugMessageBounds() const
+{
+    auto const pathBounds = getDrawableBounds().expanded(3.0f);
+    if (!plugdata_debugging_enabled())
+        return pathBounds;
+
+    auto const pathToUse = getPath();
+    auto const currentPathLength = pathToUse.getLength();
+    if (currentPathLength <= 0.0f)
+        return pathBounds;
+
+    auto const visibleArea = cnv && cnv->viewport ? cnv->viewport->getViewArea() : pathBounds;
+    auto bounds = pathBounds;
+    auto const bubbleOffset = jmax(debugBubbleGap, getPathWidth() + 4.0f);
+
+    auto const addMessageBounds = [&](DebugMessage const& msg) {
+        auto const text = formatDebugMessage(msg);
+        if (text.isEmpty())
+            return;
+
+        auto const point = pathToUse.getPointAlongPath(msg.progress * currentPathLength);
+        bounds = bounds.getUnion(getDebugBubbleBounds(visibleArea, point, text, bubbleOffset));
+    };
+
+    for (auto const& msg : debugMessages) {
+        addMessageBounds(msg);
+    }
+
+    if (scheduledMessage)
+        addMessageBounds(*scheduledMessage);
+
+    return bounds;
+}
+
+void Connection::updateDebugBounds()
+{
+    if (inlet && outlet)
+        setBoundsToEnclose(getDebugMessageBounds());
 }
 
 void Connection::renderDebugMessages(NVGcontext* nvg)
@@ -1501,46 +1631,51 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
 
     auto const cableThickness = getPathWidth();
 
-    // getPath() is in parent/canvas space; shift it into this component's local space.
-    auto localPath = getPath();
-    localPath.applyTransform(AffineTransform::translation(-getX(), -getY()));
+    auto const pathToUse = getPath();
+    auto const pathBounds = getDrawableBounds().expanded(3.0f);
+    auto const visibleArea = cnv && cnv->viewport ? cnv->viewport->getViewArea() : pathBounds;
 
     // Recompute path length here to avoid using a stale cached value.
-    auto const currentPathLength = localPath.getLength();
+    auto const currentPathLength = pathToUse.getLength();
+    auto const bubbleOffset = jmax(debugBubbleGap, cableThickness + 4.0f);
 
     auto const drawMessage = [&](DebugMessage const& msg) {
-        auto const point = localPath.getPointAlongPath(msg.progress * currentPathLength);
+        auto const point = pathToUse.getPointAlongPath(msg.progress * currentPathLength);
+        auto const pointLocal = point - Point<float>(static_cast<float>(getX()), static_cast<float>(getY()));
+
+        // Draw the raw message text inside a wrapped bubble.
+        auto const text = formatDebugMessage(msg);
+        if (text.isNotEmpty()) {
+            auto const bubbleBounds = getDebugBubbleBounds(visibleArea, point, text, bubbleOffset).toNearestInt();
+            auto const bubbleFillBounds = bubbleBounds.reduced(roundToInt(debugBubbleOutlineWidth));
+
+            nvgBeginPath(nvg);
+            nvgRoundedRect(nvg, bubbleBounds.getX(), bubbleBounds.getY(), bubbleBounds.getWidth(), bubbleBounds.getHeight(), 6.0f);
+            nvgFillColor(nvg, nvgColour(PlugDataColours::dialogBackgroundColour.withAlpha(0.92f)));
+            nvgFill(nvg);
+            nvgStrokeColor(nvg, nvgColour(PlugDataColours::outlineColour.withAlpha(0.45f)));
+            nvgStrokeWidth(nvg, debugBubbleOutlineWidth);
+            nvgStroke(nvg);
+
+            renderDebugBubbleText(nvg, bubbleFillBounds, text);
+        }
 
         // Draw a glowing white halo behind the dot.
         nvgBeginPath(nvg);
         nvgFillColor(nvg, nvgColour(Colours::white.withAlpha(0.6f)));
-        nvgCircle(nvg, point.x, point.y, cableThickness * 1.0f);
+        nvgCircle(nvg, pointLocal.x, pointLocal.y, cableThickness * 1.0f);
         nvgFill(nvg);
 
-        // Draw the message dot.
+        // Draw the message dot on top of the bubble.
         nvgBeginPath(nvg);
         nvgFillColor(nvg, nvgColour(Colours::white));
-        nvgCircle(nvg, point.x, point.y, cableThickness * 0.75f);
+        nvgCircle(nvg, pointLocal.x, pointLocal.y, cableThickness * 0.75f);
         nvgFill(nvg);
 
         nvgBeginPath(nvg);
         nvgFillColor(nvg, nvgColour(PlugDataColours::dataColour));
-        nvgCircle(nvg, point.x, point.y, cableThickness * 0.45f);
+        nvgCircle(nvg, pointLocal.x, pointLocal.y, cableThickness * 0.45f);
         nvgFill(nvg);
-
-        // Draw the raw message text next to the dot.
-        auto const text = formatDebugMessage(msg);
-        if (text.isNotEmpty()) {
-            nvgFontSize(nvg, 11.0f);
-            nvgFontFace(nvg, "Inter-Regular");
-            nvgTextAlign(nvg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-
-            nvgFillColor(nvg, nvgColour(PlugDataColours::canvasBackgroundColour));
-            nvgText(nvg, point.x + cableThickness + 3.0f + 1.0f, point.y + 1.0f, text.toUTF8(), nullptr);
-
-            nvgFillColor(nvg, nvgColour(Colours::white));
-            nvgText(nvg, point.x + cableThickness + 3.0f, point.y, text.toUTF8(), nullptr);
-        }
     };
 
     for (auto const& msg : debugMessages) {

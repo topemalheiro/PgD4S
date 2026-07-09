@@ -123,6 +123,7 @@ public:
     };
 
     String formatDebugMessage(DebugMessage const& msg) const;
+    Rectangle<float> getDebugMessageBounds() const;
 
     void setDebugModeEnabled(bool enabled);
     bool isDebugModeEnabled() const { return plugdata_debugging_enabled(); }
@@ -146,6 +147,7 @@ private:
     int getMultiConnectNumber() const;
     int getNumSignalChannels() const;
     int getNumberOfConnections() const;
+    void updateDebugBounds();
 
     NVGcolor getConnectionColour() const;
 

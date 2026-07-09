@@ -774,7 +774,7 @@ void Canvas::renderAllConnections(NVGcontext* nvg, Rectangle<int> const area)
 
     for (auto* connection : connections) {
         NVGScopedState scopedState(nvg);
-        if (connection->intersectsRectangle(area) && connection->isVisible()) {
+        if ((connection->getBounds().intersects(area) || connection->intersectsRectangle(area)) && connection->isVisible()) {
             if (connection->isMouseHovering())
                 hovered = connection;
             else if (!connection->isSelected())

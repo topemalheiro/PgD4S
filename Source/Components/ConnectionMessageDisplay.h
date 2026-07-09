@@ -161,7 +161,7 @@ public:
 private:
     void updateTextString(bool const isHoverEntered = false)
     {
-        messageItemsWithFormat.clear();
+        messageLayout = TextLayout();
 
         if (connectionPtr == nullptr || !activeConnection)
             return;
@@ -174,46 +174,34 @@ private:
             textString = StringArray("no message yet");
         }
 
-        auto const halfEditorWidth = editor->getWidth() / 2;
-        auto fontStyle = haveMessage ? FontStyle::Semibold : FontStyle::Regular;
-        auto textFont = Font(haveMessage ? Fonts::getSemiBoldFont() : Fonts::getDefaultFont());
+        auto const screenBounds = editor->getScreenBounds();
+        auto const maxLayoutWidth = jmax(160, screenBounds.getWidth() - 32);
 
-        int totalStringWidth = 8 * 2 + 4;
+        AttributedString attributedText;
+        attributedText.setJustification(Justification::centredLeft);
+        attributedText.setLineSpacing(1.08f);
+        attributedText.setWordWrap(AttributedString::byChar);
+
+        auto const regularFont = Fonts::getDefaultFont().withHeight(13.0f);
+        auto const semiboldFont = Fonts::getSemiBoldFont().withHeight(13.0f);
+        auto const textColour = PlugDataColours::panelTextColour;
+
         for (int i = 0; i < textString.size(); i++) {
             auto const firstOrLast = i == 0 || i == textString.size() - 1;
             String stringItem = textString[i];
             stringItem += firstOrLast ? "" : ",";
 
-            // first item uses system font
-            // use cached width calculation for performance
-            int const stringWidth = CachedFontStringWidth::get()->calculateSingleLineWidth(textFont, stringItem) + 2;
-
-            if (totalStringWidth + stringWidth > halfEditorWidth) {
-                auto const elideText = String("(" + String(textString.size() - i) + String(")..."));
-                auto const elideFont = Font(Fonts::getSemiBoldFont());
-
-                auto const elideWidth = CachedFontStringWidth::get()->calculateSingleLineWidth(elideFont, elideText);
-                messageItemsWithFormat.add(TextStringWithMetrics(elideText, FontStyle::Semibold, elideWidth));
-                totalStringWidth += elideWidth + 4;
-                break;
-            }
-
-            // calculate total needed width
-            totalStringWidth += stringWidth + 4;
-
-            messageItemsWithFormat.add(TextStringWithMetrics(stringItem, fontStyle, stringWidth));
-
-            if (fontStyle != FontStyle::Regular) {
-                // set up font for next item/s -regular font to support extended character
-                fontStyle = FontStyle::Regular;
-                textFont = Font(Fonts::getDefaultFont());
-            }
+            auto const tokenFont = haveMessage && i == 0 ? semiboldFont : regularFont;
+            attributedText.append(stringItem, tokenFont, textColour);
+            if (i != textString.size() - 1)
+                attributedText.append(" ", regularFont, textColour);
         }
 
-        // only make the size wider, to fit changing size of values
-        if (totalStringWidth > getWidth() || isHoverEntered) {
-            updateBoundsFromProposed(Rectangle<int>().withSize(totalStringWidth, 36));
-        }
+        messageLayout.createLayout(attributedText, static_cast<float>(maxLayoutWidth));
+
+        auto const contentWidth = jmax(1, static_cast<int>(messageLayout.getWidth() + 0.999f));
+        auto const contentHeight = jmax(1, static_cast<int>(messageLayout.getHeight() + 0.999f));
+        updateBoundsFromProposed(Rectangle<int>(0, 0, contentWidth + 24, contentHeight + 24));
 
         // Check if changed
         if (lastTextString != textString) {
@@ -224,9 +212,27 @@ private:
 
     void updateBoundsFromProposed(Rectangle<int> proposedPosition)
     {
-        // make sure the proposed position is inside the editor area
-        proposedPosition.setPosition(mousePosition.translated(0, -getHeight()));
-        constrainedBounds = proposedPosition.constrainedWithin(editor->getScreenBounds());
+        auto const screenBounds = editor->getScreenBounds().reduced(8);
+        auto candidate = proposedPosition;
+
+        auto const rightX = mousePosition.x + 16;
+        auto const leftX = mousePosition.x - candidate.getWidth() - 16;
+        if (rightX + candidate.getWidth() <= screenBounds.getRight() || leftX < screenBounds.getX()) {
+            candidate.setX(rightX);
+        } else {
+            candidate.setX(leftX);
+        }
+
+        auto const aboveY = mousePosition.y - candidate.getHeight() - 16;
+        auto const belowY = mousePosition.y + 16;
+        if (aboveY >= screenBounds.getY() || belowY + candidate.getHeight() > screenBounds.getBottom()) {
+            candidate.setY(aboveY);
+        } else {
+            candidate.setY(belowY);
+        }
+
+        candidate = candidate.constrainedWithin(screenBounds);
+        constrainedBounds = candidate;
         if (getBounds() != constrainedBounds) {
 #if JUCE_WINDOWS || JUCE_LINUX || JUCE_BSD
             setBounds(constrainedBounds.withPosition(constrainedBounds.getPosition() / getApproximateScaleFactorForComponent(editor)));
@@ -403,29 +409,12 @@ private:
                 g.drawText(text, textBounds.toNearestInt(), Justification::centred);
             }
         } else {
-            int startPositionX = 8 + 4;
-            for (auto const& item : messageItemsWithFormat) {
-                Fonts::drawStyledText(g, item.text, startPositionX, 0, item.width, getHeight(), PlugDataColours::panelTextColour, item.fontStyle, 14, Justification::centredLeft);
-                startPositionX += item.width + 4;
-            }
+            auto const textBounds = getLocalBounds().reduced(12).toFloat();
+            messageLayout.draw(g, textBounds);
         }
     }
 
-    static inline bool isShowing = false;
-
-    struct TextStringWithMetrics {
-        TextStringWithMetrics(String text, FontStyle const fontStyle, int const width)
-            : text(std::move(text))
-            , fontStyle(fontStyle)
-            , width(width)
-        {
-        }
-        String text;
-        FontStyle fontStyle;
-        int width;
-    };
-
-    SmallArray<TextStringWithMetrics, 8> messageItemsWithFormat;
+    TextLayout messageLayout;
     pd::Instance* pd;
 
     pd_weak_reference weakRef = false;
