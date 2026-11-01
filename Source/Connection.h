@@ -125,6 +125,13 @@ public:
         double arrivalTimeMs = 0.0;
         float progress = 0.0f; // 0.0 .. 1.0 along the cable
         bool truncated = false; // the trace only kept the first atoms
+
+        // The bubble's text and layout, worked out once (again only if the wrap width changes)
+        mutable String bubbleText;
+        mutable bool bubbleTextReady = false;
+        mutable int bubbleWrapWidth = -1;
+        mutable Point<float> bubbleTextSize;
+        mutable AttributedString::WordWrap bubbleWordWrap = AttributedString::byWord;
     };
 
     String formatDebugMessage(DebugMessage const& msg, int maxLength = -1) const;
@@ -155,6 +162,10 @@ private:
     void updateDebugBounds();
     float getDebugTextScale() const;
     void pruneDebugTextRenderers();
+    void prepareDebugBubbleText(DebugMessage const& msg, int wrapWidth) const;
+
+    // Drawable's version encloses only the path, dropping the debug bubbles from the bounds
+    void parentHierarchyChanged() override;
 
     NVGcolor getConnectionColour() const;
 
@@ -194,6 +205,7 @@ private:
     float mouseDownPosition = 0;
 
     NVGCachedPath cachedPath;
+    Point<int> cachedPathOrigin; // the component position the cached cable was saved at
     pd::WeakReference ptr;
 
     SmallArray<pd::Atom> lastValue;

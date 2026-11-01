@@ -34,7 +34,6 @@ constexpr float debugBubblePaddingY = 6.0f;
 constexpr float debugBubbleOutlineWidth = 1.0f;
 constexpr float debugBubbleFontHeight = 13.0f;
 constexpr float debugBubbleGap = 10.0f;
-constexpr float debugBubbleMinWidth = 240.0f;
 constexpr float debugBubbleMaxWidth = 560.0f;
 constexpr float debugBubbleCornerRadius = 6.0f;
 
@@ -43,32 +42,25 @@ Font getDebugMessageFont()
     return Fonts::getDefaultFont().withHeight(debugBubbleFontHeight);
 }
 
-// Width the message text wraps at. The bubble shrinks to the text when it's shorter.
-float getDebugLayoutWidth(Rectangle<float> const& visibleArea)
+// Width the message text wraps at, so the widest bubble still fits in the view. Whole pixels,
+// because the text is measured here and drawn by CachedTextRender, which takes an int width.
+int getDebugWrapWidth(Rectangle<float> const& visibleArea)
 {
-    return jlimit(debugBubbleMinWidth, debugBubbleMaxWidth, visibleArea.getWidth() - 48.0f);
+    auto const maxBubbleWidth = jlimit(60.0f, debugBubbleMaxWidth, visibleArea.getWidth() - 16.0f);
+    return jmax(1, static_cast<int>(maxBubbleWidth - 2.0f * (debugBubblePaddingX + debugBubbleOutlineWidth)));
 }
 
 // Laid out the same way as CachedTextRender::prepareLayout, which draws the text,
 // so the measured bubble always fits the drawn text.
-AttributedString makeDebugMessageAttributedString(String const& text)
+TextLayout createDebugMessageLayout(String const& text, int const wrapWidth, AttributedString::WordWrap const wordWrap)
 {
     AttributedString attributedText;
     attributedText.setJustification(Justification::centredLeft);
-    attributedText.setWordWrap(AttributedString::byWord);
+    attributedText.setWordWrap(wordWrap);
     attributedText.append(text, getDebugMessageFont(), PlugDataColours::canvasTextColour);
-    return attributedText;
-}
 
-TextLayout createDebugMessageLayout(String const& text, float const maxLayoutWidth)
-{
     TextLayout layout;
-
-    if (text.isEmpty())
-        return layout;
-
-    auto attributedText = makeDebugMessageAttributedString(text);
-    layout.createLayout(attributedText, jmax(1.0f, maxLayoutWidth));
+    layout.createLayout(attributedText, static_cast<float>(wrapWidth));
     return layout;
 }
 
@@ -99,20 +91,40 @@ Rectangle<float> placeDebugBubble(Rectangle<float> const& visibleArea, Point<flo
     return bubble.constrainedWithin(visibleArea);
 }
 
-Rectangle<float> getDebugBubbleBounds(Rectangle<float> const& visibleArea, Point<float> const& point, String const& text, float const offset)
+// The bubble around a message's text: padding and outline added, placed next to the dot inside the view
+Rectangle<float> getDebugBubbleBounds(Rectangle<float> const& visibleArea, Point<float> const& point, Point<float> const textSize, float const offset)
 {
-    if (text.isEmpty() || visibleArea.isEmpty())
+    if (visibleArea.isEmpty())
         return {};
 
-    auto const layoutWidth = getDebugLayoutWidth(visibleArea);
-    auto layout = createDebugMessageLayout(text, layoutWidth);
+    auto const bubbleWidth = textSize.x + 2.0f * (debugBubblePaddingX + debugBubbleOutlineWidth);
+    auto const bubbleHeight = textSize.y + 2.0f * (debugBubblePaddingY + debugBubbleOutlineWidth);
+    return placeDebugBubble(visibleArea, point, bubbleWidth, bubbleHeight, offset);
+}
+}
+
+void Connection::prepareDebugBubbleText(DebugMessage const& msg, int const wrapWidth) const
+{
+    if (!msg.bubbleTextReady) {
+        msg.bubbleText = formatDebugMessage(msg, maxDebugTextLength);
+        msg.bubbleTextReady = true;
+    }
+
+    if (msg.bubbleWrapWidth == wrapWidth || msg.bubbleText.isEmpty())
+        return;
+
+    // Break lines between words, unless a single word is too long for the bubble
+    auto wordWrap = AttributedString::byWord;
+    auto layout = createDebugMessageLayout(msg.bubbleText, wrapWidth, wordWrap);
+    if (layout.getWidth() > static_cast<float>(wrapWidth)) {
+        wordWrap = AttributedString::byChar;
+        layout = createDebugMessageLayout(msg.bubbleText, wrapWidth, wordWrap);
+    }
 
     // Whole pixels, so rounding the bubble's position never cuts the text image
-    auto const maxBubbleWidth = jlimit(debugBubbleMinWidth, debugBubbleMaxWidth, visibleArea.getWidth() - 16.0f);
-    auto const bubbleWidth = jmax(1.0f, jmin(std::ceil(layout.getWidth()) + debugBubblePaddingX * 2.0f, maxBubbleWidth));
-    auto const bubbleHeight = jmax(1.0f, std::ceil(layout.getHeight()) + debugBubblePaddingY * 2.0f);
-    return placeDebugBubble(visibleArea, point, bubbleWidth, bubbleHeight, offset).expanded(debugBubbleOutlineWidth).constrainedWithin(visibleArea);
-}
+    msg.bubbleTextSize = { std::ceil(layout.getWidth()), std::ceil(layout.getHeight()) };
+    msg.bubbleWordWrap = wordWrap;
+    msg.bubbleWrapWidth = wrapWidth;
 }
 
 Connection::Connection(Canvas* parent, Iolet* s, Iolet* e, t_outconnect* oc)
@@ -291,6 +303,11 @@ void Connection::render(NVGcontext* nvg)
     nvgStrokePaint(nvg, nvgDoubleStroke(nvg, connectionColour, shadowColour, dashColor, dashSize, useGradientLook, showActivity, offset));
     nvgStrokeWidth(nvg, cableThickness);
 
+    // The cached cable is relative to this component's position, which can move without the path
+    // changing: debug bubbles grow the bounds, and Drawable resets them when a cable is selected.
+    if (getPosition() != cachedPathOrigin)
+        cachedPath.clear();
+
     bool cacheHit = cachedPath.stroke();
     if (!cacheHit) {
         auto pathFromOrigin = getPath();
@@ -299,6 +316,7 @@ void Connection::render(NVGcontext* nvg)
         setJUCEPath(nvg, pathFromOrigin);
         nvgStroke(nvg);
         cachedPath.save(nvg);
+        cachedPathOrigin = getPosition();
     }
 
     nvgRestore(nvg);
@@ -901,6 +919,7 @@ void Connection::componentMovedOrResized(Component& component, bool wasMoved, bo
 
         previousPStart = pstart;
         setTopLeftPosition(getPosition() + pointOffset.toInt());
+        cachedPathOrigin += pointOffset.toInt(); // the cable moves with the component, so its cache still fits
 
         for (auto& point : currentPlan) {
             point += pointOffset;
@@ -1502,8 +1521,23 @@ void Connection::debugStep()
 
 void Connection::timerCallback()
 {
-    bool const hasWork = plugdata_debugging_enabled() && (!debugMessages.empty() || scheduledMessage.has_value());
-    if (!hasWork) {
+    // Debugging was switched off (from the statusbar or the overlay menu): erase what's still drawn
+    if (!plugdata_debugging_enabled()) {
+        stopTimer();
+        if (!debugMessages.empty() || scheduledMessage) {
+            repaint(); // the current bounds still cover the bubbles
+            debugMessages.clear();
+            debugTextRenderers.clear();
+            // Marked complete so a scheduler that's still waiting on this message moves on
+            scheduledMessage.reset();
+            scheduledMessageComplete = true;
+            updateDebugBounds();
+            repaint();
+        }
+        return;
+    }
+
+    if (debugMessages.empty() && !scheduledMessage) {
         stopTimer();
         return;
     }
@@ -1514,6 +1548,8 @@ void Connection::timerCallback()
 
     bool const wasStep = debugStepPending.exchange(false);
     if (debugPaused.load() && !wasStep) {
+        // A paused bubble can still move when the view pans, zooms or resizes
+        updateDebugBounds();
         return;
     }
 
@@ -1614,14 +1650,15 @@ Rectangle<float> Connection::getDebugMessageBounds() const
     auto const visibleArea = cnv && cnv->viewport ? cnv->viewport->getViewArea() : pathBounds;
     auto bounds = pathBounds;
     auto const bubbleOffset = jmax(debugBubbleGap, getPathWidth() + 4.0f);
+    auto const wrapWidth = getDebugWrapWidth(visibleArea);
 
     auto const addMessageBounds = [&](DebugMessage const& msg) {
-        auto const text = formatDebugMessage(msg, maxDebugTextLength);
-        if (text.isEmpty())
+        prepareDebugBubbleText(msg, wrapWidth);
+        if (msg.bubbleText.isEmpty())
             return;
 
         auto const point = pathToUse.getPointAlongPath(msg.progress * currentPathLength);
-        bounds = bounds.getUnion(getDebugBubbleBounds(visibleArea, point, text, bubbleOffset));
+        bounds = bounds.getUnion(getDebugBubbleBounds(visibleArea, point, msg.bubbleTextSize, bubbleOffset));
     };
 
     for (auto const& msg : debugMessages) {
@@ -1636,16 +1673,16 @@ Rectangle<float> Connection::getDebugMessageBounds() const
 
 void Connection::updateDebugBounds()
 {
-    if (!inlet || !outlet)
-        return;
+    if (inlet && outlet)
+        setBoundsToEnclose(getDebugMessageBounds());
+}
 
-    auto const oldPosition = getPosition();
-    setBoundsToEnclose(getDebugMessageBounds());
-
-    // The cached cable is stored relative to this component's position, which moves when
-    // a bubble grows the bounds up or left. Without this the cable is drawn shifted.
-    if (getPosition() != oldPosition)
-        cachedPath.clear();
+void Connection::parentHierarchyChanged()
+{
+    if (inlet && outlet)
+        updateDebugBounds();
+    else
+        DrawablePath::parentHierarchyChanged();
 }
 
 void Connection::renderDebugMessages(NVGcontext* nvg)
@@ -1668,7 +1705,7 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
     // Recompute path length here to avoid using a stale cached value.
     auto const currentPathLength = pathToUse.getLength();
     auto const bubbleOffset = jmax(debugBubbleGap, cableThickness + 4.0f);
-    auto const layoutWidth = roundToInt(getDebugLayoutWidth(visibleArea));
+    auto const wrapWidth = getDebugWrapWidth(visibleArea);
     auto const textScale = getDebugTextScale();
 
     auto const drawMessage = [&](DebugMessage const& msg, CachedTextRender& textRenderer) {
@@ -1676,9 +1713,9 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
         auto const pointLocal = point - origin;
 
         // Draw the raw message text inside a wrapped bubble.
-        auto const text = formatDebugMessage(msg, maxDebugTextLength);
-        if (text.isNotEmpty()) {
-            auto const bubbleBounds = (getDebugBubbleBounds(visibleArea, point, text, bubbleOffset) - origin).toNearestInt().toFloat();
+        prepareDebugBubbleText(msg, wrapWidth);
+        if (msg.bubbleText.isNotEmpty()) {
+            auto const bubbleBounds = (getDebugBubbleBounds(visibleArea, point, msg.bubbleTextSize, bubbleOffset) - origin).toNearestInt().toFloat();
             auto const outlineBounds = bubbleBounds.reduced(debugBubbleOutlineWidth * 0.5f);
 
             nvgBeginPath(nvg);
@@ -1691,7 +1728,7 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
 
             auto const textBounds = bubbleBounds.reduced(debugBubbleOutlineWidth + debugBubblePaddingX, debugBubbleOutlineWidth + debugBubblePaddingY);
             if (!textBounds.isEmpty()) {
-                textRenderer.prepareLayout(text, getDebugMessageFont(), PlugDataColours::canvasTextColour, layoutWidth, layoutWidth, false, AttributedString::byWord);
+                textRenderer.prepareLayout(msg.bubbleText, getDebugMessageFont(), PlugDataColours::canvasTextColour, wrapWidth, wrapWidth, false, msg.bubbleWordWrap);
 
                 // Render from a zero origin, so the cached text image is reused while the bubble moves
                 NVGScopedState textState(nvg);

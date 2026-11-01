@@ -89,6 +89,10 @@ void DebugExecutionScheduler::scheduleNextEvent()
 
 void DebugExecutionScheduler::reorderPendingEventsByOutletPriority()
 {
+    // Nothing to reorder. Checked before draining, or a single pending event would be lost.
+    if (pendingEvents.size_approx() < 2)
+        return;
+
     // Drain the pending queue into a local vector.
     std::vector<pd::ConnectionTraceEvent> events;
     events.reserve(pendingEvents.size_approx());
@@ -96,9 +100,6 @@ void DebugExecutionScheduler::reorderPendingEventsByOutletPriority()
     while (pendingEvents.try_dequeue(event)) {
         events.push_back(event);
     }
-
-    if (events.size() < 2)
-        return;
 
     struct EventNode {
         pd::ConnectionTraceEvent event;
@@ -182,6 +183,13 @@ void DebugExecutionScheduler::update()
 {
     if (!enabled)
         return;
+
+    // Debugging can be switched off from the overlay menu without disabling the scheduler
+    if (!plugdata_debugging_enabled()) {
+        if (hasCurrentEvent || pendingEvents.size_approx() > 0)
+            clear();
+        return;
+    }
 
     // Drain the trace collector into our pending queue.
     if (auto* pd = editor->pd) {
