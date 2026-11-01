@@ -8,6 +8,8 @@
 
 #include <atomic>
 #include <deque>
+#include <map>
+#include <memory>
 #include <optional>
 
 #include <juce_animation/juce_animation.h>
@@ -23,6 +25,8 @@
 #include "Utility/RateReducer.h"
 #include "Utility/ModifierKeyListener.h"
 #include "LookAndFeel.h"
+#include "Utility/Hash.h"
+#include "Utility/CachedTextRender.h"
 
 using PathPlan = SmallArray<Point<float>>;
 
@@ -120,9 +124,10 @@ public:
         uint64_t sequenceNumber = 0;
         double arrivalTimeMs = 0.0;
         float progress = 0.0f; // 0.0 .. 1.0 along the cable
+        bool truncated = false; // the trace only kept the first atoms
     };
 
-    String formatDebugMessage(DebugMessage const& msg) const;
+    String formatDebugMessage(DebugMessage const& msg, int maxLength = -1) const;
     Rectangle<float> getDebugMessageBounds() const;
 
     void setDebugModeEnabled(bool enabled);
@@ -148,6 +153,8 @@ private:
     int getNumSignalChannels() const;
     int getNumberOfConnections() const;
     void updateDebugBounds();
+    float getDebugTextScale() const;
+    void pruneDebugTextRenderers();
 
     NVGcolor getConnectionColour() const;
 
@@ -202,7 +209,13 @@ private:
     bool scheduledMessageComplete = false;
     uint64_t debugSequenceCounter = 0;
     double lastTimerTimeMs = 0.0;
+
+    // Message text is rendered once into an image and reused while its bubble moves
+    std::map<uint64_t, std::unique_ptr<CachedTextRender>> debugTextRenderers; // by sequence number
+    CachedTextRender scheduledTextRenderer;
+
     static constexpr size_t maxDebugMessages = 8;
+    static constexpr int maxDebugTextLength = 300;
     static constexpr size_t maxDebugHistory = 64;
     static constexpr float debugMessageDurationMs = 400.0f;
     static constexpr float debugStepSizeMs = 200.0f;

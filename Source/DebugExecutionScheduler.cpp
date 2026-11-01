@@ -79,6 +79,7 @@ void DebugExecutionScheduler::scheduleNextEvent()
     msg.sequenceNumber = event.sequenceNumber;
     msg.arrivalTimeMs = Time::getMillisecondCounterHiRes();
     msg.progress = 0.0f;
+    msg.truncated = event.truncated;
 
     connection->setScheduledMessage(msg);
     currentConnection = connection;

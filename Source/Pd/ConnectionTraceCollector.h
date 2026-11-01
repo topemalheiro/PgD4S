@@ -16,7 +16,8 @@ struct ConnectionTraceEvent {
     t_symbol* selector = nullptr;
     uint64_t sequenceNumber = 0;
     uint8_t atomCount = 0;
-    t_atom atoms[8];
+    bool truncated = false; // the message had more atoms than fit in atoms[]
+    t_atom atoms[32];
 };
 
 class ConnectionTraceCollector final {
@@ -37,6 +38,7 @@ public:
         event.selector = selector;
         event.sequenceNumber = ++sequenceCounter;
         event.atomCount = static_cast<uint8_t>(jmin(argc, static_cast<int>(std::size(event.atoms))));
+        event.truncated = argc > event.atomCount;
         for (int i = 0; i < event.atomCount; ++i) {
             event.atoms[i] = argv[i];
         }

@@ -701,6 +701,14 @@ void Canvas::performRender(NVGcontext* nvg, Rectangle<int> invalidRegion)
             renderAllObjects(nvg, invalidRegion);
             renderAllConnections(nvg, invalidRegion);
         }
+
+        // Debug message bubbles go over all objects and cables
+        if (connectionLayer.isVisible()) {
+            for (auto* connection : connections) {
+                if (connection->isVisible() && connection->getBounds().intersects(invalidRegion))
+                    connection->renderDebugMessages(nvg);
+            }
+        }
     }
 
     for (auto* connection : connectionsBeingCreated) {

@@ -75,10 +75,10 @@ public:
     }
 
     // If you want to use this for text measuring as well, you might want the measuring to be ready before
-    bool prepareLayout(String const& text, Font const& font, Colour const& colour, int const width, int const cachedWidth, bool const highlightObjectSyntax)
+    bool prepareLayout(String const& text, Font const& font, Colour const& colour, int const width, int const cachedWidth, bool const highlightObjectSyntax, AttributedString::WordWrap const wordWrap = AttributedString::byChar)
     {
         auto const textHash = hash(text);
-        bool const needsUpdate = lastTextHash != textHash || colour != lastColour || cachedWidth != lastWidth || highlightObjectSyntax != isSyntaxHighlighted || lastFont != font;
+        bool const needsUpdate = lastTextHash != textHash || colour != lastColour || cachedWidth != lastWidth || highlightObjectSyntax != isSyntaxHighlighted || lastFont != font || wordWrap != lastWordWrap;
         auto const nameColour = colour.interpolatedWith(PlugDataColours::dataColour, 0.7f);
         bool const highlightTextNeedsUpdaste = highlightObjectSyntax ? lastTextHighlightedColour != nameColour : false;
 
@@ -92,13 +92,14 @@ public:
                 attributedText.setFont(font);
             }
             attributedText.setJustification(Justification::centredLeft);
-            attributedText.setWordWrap(AttributedString::byChar);
+            attributedText.setWordWrap(wordWrap);
 
             layout = TextLayout();
             layout.createLayout(attributedText, width);
 
             idealHeight = layout.getHeight();
             lastWidth = cachedWidth;
+            lastWordWrap = wordWrap;
 
             lastTextHash = textHash;
             lastColour = colour;
@@ -147,6 +148,7 @@ private:
     Font lastFont = Font(FontOptions());
     int lastWidth = 0;
     int idealWidth = 0, idealHeight = 0;
+    AttributedString::WordWrap lastWordWrap = AttributedString::byChar;
     Rectangle<int> lastRenderBounds;
 
     TextLayout layout;

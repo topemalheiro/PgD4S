@@ -32,18 +32,31 @@ namespace {
 constexpr float debugBubblePaddingX = 8.0f;
 constexpr float debugBubblePaddingY = 6.0f;
 constexpr float debugBubbleOutlineWidth = 1.0f;
-constexpr float debugBubbleFontHeight = 11.0f;
+constexpr float debugBubbleFontHeight = 13.0f;
 constexpr float debugBubbleGap = 10.0f;
 constexpr float debugBubbleMinWidth = 240.0f;
 constexpr float debugBubbleMaxWidth = 560.0f;
+constexpr float debugBubbleCornerRadius = 6.0f;
 
+Font getDebugMessageFont()
+{
+    return Fonts::getDefaultFont().withHeight(debugBubbleFontHeight);
+}
+
+// Width the message text wraps at. The bubble shrinks to the text when it's shorter.
+float getDebugLayoutWidth(Rectangle<float> const& visibleArea)
+{
+    return jlimit(debugBubbleMinWidth, debugBubbleMaxWidth, visibleArea.getWidth() - 48.0f);
+}
+
+// Laid out the same way as CachedTextRender::prepareLayout, which draws the text,
+// so the measured bubble always fits the drawn text.
 AttributedString makeDebugMessageAttributedString(String const& text)
 {
     AttributedString attributedText;
     attributedText.setJustification(Justification::centredLeft);
-    attributedText.setLineSpacing(1.08f);
-    attributedText.setWordWrap(AttributedString::byChar);
-    attributedText.append(text, Fonts::getDefaultFont().withHeight(debugBubbleFontHeight), PlugDataColours::canvasTextColour);
+    attributedText.setWordWrap(AttributedString::byWord);
+    attributedText.append(text, getDebugMessageFont(), PlugDataColours::canvasTextColour);
     return attributedText;
 }
 
@@ -91,30 +104,14 @@ Rectangle<float> getDebugBubbleBounds(Rectangle<float> const& visibleArea, Point
     if (text.isEmpty() || visibleArea.isEmpty())
         return {};
 
-    auto const layoutWidth = jlimit(debugBubbleMinWidth, debugBubbleMaxWidth, visibleArea.getWidth() - 48.0f);
+    auto const layoutWidth = getDebugLayoutWidth(visibleArea);
     auto layout = createDebugMessageLayout(text, layoutWidth);
 
+    // Whole pixels, so rounding the bubble's position never cuts the text image
     auto const maxBubbleWidth = jlimit(debugBubbleMinWidth, debugBubbleMaxWidth, visibleArea.getWidth() - 16.0f);
-    auto const bubbleWidth = jmax(1.0f, jmin(layout.getWidth() + debugBubblePaddingX * 2.0f, maxBubbleWidth));
-    auto const bubbleHeight = jmax(1.0f, layout.getHeight() + debugBubblePaddingY * 2.0f);
+    auto const bubbleWidth = jmax(1.0f, jmin(std::ceil(layout.getWidth()) + debugBubblePaddingX * 2.0f, maxBubbleWidth));
+    auto const bubbleHeight = jmax(1.0f, std::ceil(layout.getHeight()) + debugBubblePaddingY * 2.0f);
     return placeDebugBubble(visibleArea, point, bubbleWidth, bubbleHeight, offset).expanded(debugBubbleOutlineWidth).constrainedWithin(visibleArea);
-}
-
-void renderDebugBubbleText(NVGcontext* nvg, Rectangle<int> const& bubbleBounds, String const& text)
-{
-    if (text.isEmpty() || bubbleBounds.isEmpty())
-        return;
-
-    auto const textBounds = Rectangle<float>(debugBubblePaddingX, debugBubblePaddingY,
-        jmax(1.0f, static_cast<float>(bubbleBounds.getWidth()) - debugBubblePaddingX * 2.0f),
-        jmax(1.0f, static_cast<float>(bubbleBounds.getHeight()) - debugBubblePaddingY * 2.0f));
-
-    NVGImage textImage(nvg, bubbleBounds.getWidth(), bubbleBounds.getHeight(), [text, textBounds](Graphics& g) {
-        auto layout = createDebugMessageLayout(text, textBounds.getWidth());
-        layout.draw(g, textBounds);
-    });
-
-    textImage.render(nvg, bubbleBounds, true);
 }
 }
 
@@ -303,8 +300,6 @@ void Connection::render(NVGcontext* nvg)
         nvgStroke(nvg);
         cachedPath.save(nvg);
     }
-
-    renderDebugMessages(nvg);
 
     nvgRestore(nvg);
 
@@ -1447,6 +1442,7 @@ void Connection::receiveMessage(t_symbol* symbol, SmallArray<pd::Atom> const& at
             while (debugMessages.size() > maxDebugMessages) {
                 debugMessages.pop_front();
             }
+            pruneDebugTextRenderers();
 
             if (!isTimerRunning()) {
                 lastTimerTimeMs = msg.arrivalTimeMs;
@@ -1471,6 +1467,7 @@ void Connection::setDebugModeEnabled(bool const enabled)
         stopTimer();
         debugMessages.clear();
         debugMessageHistory.clear();
+        debugTextRenderers.clear();
         scheduledMessage.reset();
         scheduledMessageComplete = false;
     }
@@ -1536,6 +1533,7 @@ void Connection::timerCallback()
     while (!debugMessages.empty() && debugMessages.front().progress >= 1.0f) {
         debugMessages.pop_front();
     }
+    pruneDebugTextRenderers();
 
     if (scheduledMessage) {
         scheduledMessage->progress = jlimit(0.0f, 1.0f, scheduledMessage->progress + deltaMs / debugMessageDurationMs);
@@ -1554,12 +1552,26 @@ void Connection::timerCallback()
     }
 }
 
-String Connection::formatDebugMessage(DebugMessage const& msg) const
+// maxLength (in characters) keeps huge lists from filling the canvas; -1 shows everything
+String Connection::formatDebugMessage(DebugMessage const& msg, int const maxLength) const
 {
     auto text = msg.selector ? String::fromUTF8(msg.selector->s_name) : String();
+    bool cut = msg.truncated;
     for (auto const& atom : msg.atoms) {
+        if (maxLength >= 0 && text.length() >= maxLength) {
+            cut = true;
+            break;
+        }
         text += " " + atom.toString();
     }
+
+    if (maxLength >= 0 && text.length() > maxLength) {
+        text = text.substring(0, maxLength);
+        cut = true;
+    }
+    if (cut)
+        text += String(CharPointer_UTF8(" \xe2\x80\xa6"));
+
     return text;
 }
 
@@ -1604,7 +1616,7 @@ Rectangle<float> Connection::getDebugMessageBounds() const
     auto const bubbleOffset = jmax(debugBubbleGap, getPathWidth() + 4.0f);
 
     auto const addMessageBounds = [&](DebugMessage const& msg) {
-        auto const text = formatDebugMessage(msg);
+        auto const text = formatDebugMessage(msg, maxDebugTextLength);
         if (text.isEmpty())
             return;
 
@@ -1624,8 +1636,16 @@ Rectangle<float> Connection::getDebugMessageBounds() const
 
 void Connection::updateDebugBounds()
 {
-    if (inlet && outlet)
-        setBoundsToEnclose(getDebugMessageBounds());
+    if (!inlet || !outlet)
+        return;
+
+    auto const oldPosition = getPosition();
+    setBoundsToEnclose(getDebugMessageBounds());
+
+    // The cached cable is stored relative to this component's position, which moves when
+    // a bubble grows the bounds up or left. Without this the cable is drawn shifted.
+    if (getPosition() != oldPosition)
+        cachedPath.clear();
 }
 
 void Connection::renderDebugMessages(NVGcontext* nvg)
@@ -1633,33 +1653,51 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
     if (!plugdata_debugging_enabled() || (debugMessages.empty() && !scheduledMessage))
         return;
 
+    // Called by the canvas after all objects and cables are drawn, so the bubbles stay on top.
+    // The path and the visible area are in canvas coordinates; everything is drawn relative to this component.
+    NVGScopedState scopedState(nvg);
+    nvgTranslate(nvg, getX(), getY());
+
     auto const cableThickness = getPathWidth();
 
     auto const pathToUse = getPath();
     auto const pathBounds = getDrawableBounds().expanded(3.0f);
     auto const visibleArea = cnv && cnv->viewport ? cnv->viewport->getViewArea() : pathBounds;
+    auto const origin = getPosition().toFloat();
 
     // Recompute path length here to avoid using a stale cached value.
     auto const currentPathLength = pathToUse.getLength();
     auto const bubbleOffset = jmax(debugBubbleGap, cableThickness + 4.0f);
+    auto const layoutWidth = roundToInt(getDebugLayoutWidth(visibleArea));
+    auto const textScale = getDebugTextScale();
 
-    auto const drawMessage = [&](DebugMessage const& msg) {
+    auto const drawMessage = [&](DebugMessage const& msg, CachedTextRender& textRenderer) {
         auto const point = pathToUse.getPointAlongPath(msg.progress * currentPathLength);
-        auto const pointLocal = point - Point<float>(static_cast<float>(getX()), static_cast<float>(getY()));
+        auto const pointLocal = point - origin;
 
         // Draw the raw message text inside a wrapped bubble.
-        auto const text = formatDebugMessage(msg);
+        auto const text = formatDebugMessage(msg, maxDebugTextLength);
         if (text.isNotEmpty()) {
-            auto const bubbleBounds = getDebugBubbleBounds(visibleArea, point, text, bubbleOffset).toNearestInt();
-            auto const bubbleFillBounds = bubbleBounds.reduced(roundToInt(debugBubbleOutlineWidth));
+            auto const bubbleBounds = (getDebugBubbleBounds(visibleArea, point, text, bubbleOffset) - origin).toNearestInt().toFloat();
+            auto const outlineBounds = bubbleBounds.reduced(debugBubbleOutlineWidth * 0.5f);
 
             nvgBeginPath(nvg);
-            nvgRoundedRect(nvg, bubbleBounds.getX(), bubbleBounds.getY(), bubbleBounds.getWidth(), bubbleBounds.getHeight(), 6.0f);
-            nvgStrokeColor(nvg, nvgColour(PlugDataColours::outlineColour.withAlpha(0.18f)));
+            nvgRoundedRect(nvg, outlineBounds.getX(), outlineBounds.getY(), outlineBounds.getWidth(), outlineBounds.getHeight(), debugBubbleCornerRadius);
+            nvgFillColor(nvg, nvgColour(PlugDataColours::canvasBackgroundColour.withAlpha(0.95f)));
+            nvgFill(nvg);
+            nvgStrokeColor(nvg, nvgColour(PlugDataColours::outlineColour));
             nvgStrokeWidth(nvg, debugBubbleOutlineWidth);
             nvgStroke(nvg);
 
-            renderDebugBubbleText(nvg, bubbleFillBounds, text);
+            auto const textBounds = bubbleBounds.reduced(debugBubbleOutlineWidth + debugBubblePaddingX, debugBubbleOutlineWidth + debugBubblePaddingY);
+            if (!textBounds.isEmpty()) {
+                textRenderer.prepareLayout(text, getDebugMessageFont(), PlugDataColours::canvasTextColour, layoutWidth, layoutWidth, false, AttributedString::byWord);
+
+                // Render from a zero origin, so the cached text image is reused while the bubble moves
+                NVGScopedState textState(nvg);
+                nvgTranslate(nvg, textBounds.getX(), textBounds.getY());
+                textRenderer.renderText(nvg, textBounds.withZeroOrigin(), textScale);
+            }
         }
 
         // Draw a glowing white halo behind the dot.
@@ -1681,11 +1719,35 @@ void Connection::renderDebugMessages(NVGcontext* nvg)
     };
 
     for (auto const& msg : debugMessages) {
-        drawMessage(msg);
+        auto& textRenderer = debugTextRenderers[msg.sequenceNumber];
+        if (!textRenderer)
+            textRenderer = std::make_unique<CachedTextRender>();
+        drawMessage(msg, *textRenderer);
     }
 
     if (scheduledMessage) {
-        drawMessage(*scheduledMessage);
+        drawMessage(*scheduledMessage, scheduledTextRenderer);
+    }
+}
+
+float Connection::getDebugTextScale() const
+{
+    auto const* topLevel = cnv;
+    while (auto const* nextCnv = topLevel->findParentComponentOfClass<Canvas>()) {
+        topLevel = nextCnv;
+    }
+    return cnv->editor->getRenderScale() * getValue<float>(topLevel->zoomScale);
+}
+
+// Frees the text images of messages that have finished animating
+void Connection::pruneDebugTextRenderers()
+{
+    for (auto it = debugTextRenderers.begin(); it != debugTextRenderers.end();) {
+        auto const sequenceNumber = it->first;
+        bool const inUse = std::any_of(debugMessages.begin(), debugMessages.end(), [sequenceNumber](DebugMessage const& msg) {
+            return msg.sequenceNumber == sequenceNumber;
+        });
+        it = inUse ? std::next(it) : debugTextRenderers.erase(it);
     }
 }
 
