@@ -3,7 +3,7 @@
 	url = https://github.com/topemalheiro/JUCE.git
 [submodule "Libraries/pure-data"]
 	path = Libraries/pure-data
-	url = https://github.com/plugdata-team/plugdata-pd
+	url = https://github.com/topemalheiro/plugdata-pd.git
 [submodule "Libraries/heavylib"]
 	path = Libraries/heavylib
 	url = https://github.com/Wasted-Audio/heavylib.git
