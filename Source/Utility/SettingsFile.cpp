@@ -715,7 +715,9 @@ void SettingsFile::saveSettings()
 
             if (!themesToWrite.isEmpty())
                 properties->setProperty("themes", themesToWrite);
-        } else if (!defaultSettings.at(name).equalsWithSameType(value)) {
+        } else if (!defaultSettings.contains(name) || !defaultSettings.at(name).equalsWithSameType(value)) {
+            // a setting this version doesn't know (written by a newer plugdata) is kept as it is;
+            // looking it up with at() used to throw and make the plugin fail to load
             properties->setProperty(name, value);
         }
     }

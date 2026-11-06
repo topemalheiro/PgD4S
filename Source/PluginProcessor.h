@@ -292,6 +292,7 @@ private:
     TimedCallback backupRunLoop = TimedCallback([this] { runBackupLoop(); });
     CriticalSection backupLoopLock;
     std::atomic<bool> isProcessingAudio;
+    std::atomic<bool> constructed { false }; // set at the end of the constructor
     std::unique_ptr<Recorder> recorder;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PluginProcessor)
 };

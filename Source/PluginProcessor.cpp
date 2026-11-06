@@ -197,10 +197,16 @@ PluginProcessor::PluginProcessor()
 
     sendMessagesFromQueue();
     startDSP();
+
+    // settings changes can reach settingsChanged() on the message thread while
+    // the host is still constructing this instance; act on them only from now
+    constructed = true;
 }
 
 PluginProcessor::~PluginProcessor()
 {
+    constructed = false;
+
     // Deleting the pd instance in ~PdInstance() will also free all the Pd patches
     patches.clear();
 
@@ -790,6 +796,9 @@ bool PluginProcessor::isBusesLayoutSupported(BusesLayout const& layouts) const
 
 void PluginProcessor::settingsChanged(String const& name, var const& value)
 {
+    if (!constructed)
+        return;
+
     if (name == "paths" || name == "libraries" || name == "enable_gem") {
         updateSearchPaths();
     }
@@ -797,6 +806,9 @@ void PluginProcessor::settingsChanged(String const& name, var const& value)
 
 void PluginProcessor::settingsFileReloaded()
 {
+    if (!constructed)
+        return;
+
     auto const newTheme = settingsFile->getProperty<String>("theme");
     if (PlugDataLook::currentTheme != newTheme) {
         setTheme(newTheme);

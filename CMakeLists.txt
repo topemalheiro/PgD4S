@@ -752,6 +752,17 @@ copy_binarydata(plugdata_fx_AU)
 copy_binarydata(plugdata_midi_AU)
 endif()
 
+# On Linux a plugin's calls into the libraries it links statically (pdlua's Lua,
+# ...) must stay inside the plugin: hosts such as Ardour export their own Lua,
+# and the plugin's Lua calls would otherwise bind to the host's copy and crash.
+if(UNIX AND NOT APPLE)
+    foreach(target plugdata_VST3 plugdata_fx_VST3 plugdata_CLAP plugdata_fx_CLAP plugdata_LV2 plugdata_fx_LV2)
+        if(TARGET ${target})
+            target_link_options(${target} PRIVATE "-Wl,-Bsymbolic" "-Wl,--exclude-libs,ALL")
+        endif()
+    endforeach()
+endif()
+
 target_include_directories(plugdata_core PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/BinaryData)
 
 target_include_directories(plugdata_standalone PUBLIC ${PLUGDATA_INCLUDE_DIRECTORY})
