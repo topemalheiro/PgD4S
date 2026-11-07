@@ -369,7 +369,8 @@ PluginEditor::PluginEditor(PluginProcessor& p)
              &debugModeButton }) {
         addChildComponent(button);
     }
-    setSize(pd->lastUIWidth, pd->lastUIHeight);
+    // PgD4S: the editor opens at least at its minimum size (a device face's size may have been saved)
+    setSize(std::max(pd->lastUIWidth, 890), std::max(pd->lastUIHeight, 660));
 
 #if ENABLE_TESTING
     // Call after window is ready

@@ -1527,8 +1527,10 @@ void PluginProcessor::setStateInformation(void const* data, int const sizeInByte
         }
 
         if (xmlState->hasAttribute("Height") && xmlState->hasAttribute("Width")) {
-            int windowWidth = xmlState->getIntAttribute("Width", 1000);
-            int windowHeight = xmlState->getIntAttribute("Height", 660);
+            // PgD4S: never below the editor's minimum (890 x 660): states saved while a device
+            // face was showing carry the face's size
+            int windowWidth = std::max(xmlState->getIntAttribute("Width", 1000), 890);
+            int windowHeight = std::max(xmlState->getIntAttribute("Height", 660), 660);
             lastUIWidth = windowWidth;
             lastUIHeight = windowHeight;
             if (auto* editor = dynamic_cast<PluginEditor*>(getActiveEditor())) {
