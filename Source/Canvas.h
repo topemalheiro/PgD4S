@@ -117,6 +117,14 @@ public:
     void synchroniseSplitCanvas();
     void synchronise();
     void performSynchronise();
+
+    // PgD4S: Max-style presentation layout. Objects can have a second, presentation position
+    // (saved as "#X presentation obj ..."); presentation mode, plugin mode and graph-on-parent
+    // windows show presented objects there and hide the rest.
+    void updatePresentationLayout();
+    bool usesPresentationLayout() const;
+    bool getPresentationPosition(t_gobj const* object, Point<int>& position) const;
+    UnorderedMap<t_gobj const*, Point<int>> presentationPositions;
     void handleAsyncUpdate() override;
 
     void updateDrawables();

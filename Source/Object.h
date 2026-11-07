@@ -76,6 +76,7 @@ public:
 
     void openHelpPatch() const;
     t_gobj* getPointer() const;
+    bool isHiddenByPresentation() const;
 
     SmallArray<Connection*> getConnections() const;
 

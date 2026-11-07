@@ -157,8 +157,9 @@ void Object::valueChanged(Value& v)
 {
     if (v.refersToSameSourceAs(cnv->presentationMode)) {
         // else it was a lock/unlock/presentation mode action
-        // Hide certain objects in GOP
-        setVisible(!((cnv->isGraph || cnv->presentationMode == var(true)) && gui && gui->hideInGraph()));
+        // Hide certain objects in GOP; with a presentation layout, move to the presentation position
+        updateBounds();
+        setVisible(!((cnv->isGraph || cnv->presentationMode == var(true)) && gui && gui->hideInGraph()) && !isHiddenByPresentation());
     } else if (v.refersToSameSourceAs(cnv->locked) || v.refersToSameSourceAs(cnv->commandLocked)) {
         if (gui) {
             gui->lock(cnv->isGraph || locked == var(true) || commandLocked == var(true));
@@ -331,6 +332,12 @@ void Object::applyBounds()
             editor->updateCommandStatus();
     });
 }
+bool Object::isHiddenByPresentation() const
+{
+    Point<int> position;
+    return cnv->usesPresentationLayout() && !cnv->getPresentationPosition(getPointer(), position);
+}
+
 void Object::updateBounds()
 {
     if (cnv->isGraph && gui && gui->hideInGraph())
@@ -341,7 +348,14 @@ void Object::updateBounds()
     // so we don't need to update the bounds when an object is being interacted with
     if (gui && !isObjectMouseActive) {
         // Get the bounds of the object in Pd
-        auto const newBounds = gui->getPdBounds();
+        auto newBounds = gui->getPdBounds();
+
+        // PgD4S: the presentation layout moves the object to its presentation position
+        Point<int> presentationPosition;
+        if (cnv->usesPresentationLayout() && cnv->getPresentationPosition(getPointer(), presentationPosition)) {
+            if (auto const* text = pd_checkobject(reinterpret_cast<t_pd*>(getPointer())))
+                newBounds.translate(presentationPosition.x - text->te_xpix, presentationPosition.y - text->te_ypix);
+        }
 
         // Objects may return empty bounds if they are not a real object (like scalars)
         if (!newBounds.isEmpty())
@@ -504,7 +518,7 @@ void Object::moved()
 
 void Object::resized()
 {
-    setVisible(!((cnv->isGraph || cnv->presentationMode == var(true)) && gui && gui->hideInGraph()));
+    setVisible(!((cnv->isGraph || cnv->presentationMode == var(true)) && gui && gui->hideInGraph()) && !isHiddenByPresentation());
 
     if (gui) {
         gui->setBounds(getLocalBounds().reduced(margin));

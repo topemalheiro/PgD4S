@@ -1031,6 +1031,32 @@ void Canvas::synchroniseSplitCanvas()
 
 // Synchronise state with pure-data
 // Used for loading and for complicated actions like undo/redo
+void Canvas::updatePresentationLayout()
+{
+    presentationPositions.clear();
+    if (auto glist = patch.getPointer()) {
+        for (t_gobj* y = glist->gl_list; y; y = y->g_next) {
+            int px = 0, py = 0;
+            if (canvas_presentation_get(glist.get(), y, &px, &py))
+                presentationPositions[y] = Point<int>(px, py);
+        }
+    }
+}
+
+bool Canvas::usesPresentationLayout() const
+{
+    return !presentationPositions.empty() && (isGraph || ::getValue<bool>(presentationMode));
+}
+
+bool Canvas::getPresentationPosition(t_gobj const* object, Point<int>& position) const
+{
+    auto const it = presentationPositions.find(object);
+    if (it == presentationPositions.end())
+        return false;
+    position = it->second;
+    return true;
+}
+
 void Canvas::performSynchronise()
 {
     static bool alreadyFlushed = false;
@@ -1062,6 +1088,8 @@ void Canvas::performSynchronise()
             connections.remove_at(n);
         }
     }
+
+    updatePresentationLayout();
 
     auto pdObjects = patch.getObjects();
     objects.reserve(pdObjects.size());
