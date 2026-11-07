@@ -1291,7 +1291,8 @@ void PluginProcessor::getStateInformation(MemoryBlock& destData)
     xml.setAttribute("TailLength", getValue<float>(tailLength));
     xml.setAttribute("Legacy", false);
 
-    if (auto const* editor = getActiveEditor()) {
+    auto const* editor = dynamic_cast<PluginEditor const*>(getActiveEditor());
+    if (editor && !editor->embeddedFace) { // PgD4S: a device face's size isn't the editor's
         xml.setAttribute("Width", editor->getWidth());
         xml.setAttribute("Height", editor->getHeight());
     } else {

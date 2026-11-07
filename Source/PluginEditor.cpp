@@ -660,8 +660,11 @@ void PluginEditor::resized()
     }
 #endif
 
-    pd->lastUIWidth = getWidth();
-    pd->lastUIHeight = getHeight();
+    // PgD4S: a device face's size isn't the editor's: the plugin's window opens at the editor's
+    if (!embeddedFace) {
+        pd->lastUIWidth = getWidth();
+        pd->lastUIHeight = getHeight();
+    }
 
     if (isInPluginMode()) {
 #if JUCE_LINUX || JUCE_BSD

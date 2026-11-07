@@ -136,8 +136,15 @@ void NVGSurface::initialise()
     nvg = nvgCreateContext(view, 0, getWidth() * lastRenderScale, getHeight() * lastRenderScale);
 #else
     setVisible(true);
+    // PgD4S: OpenGL can only start on a surface that is showing and has a size, and JUCE's
+    // context needs its native context before getRenderingScale(): an embedded device face
+    // can render its first frame before either. Try again at the next frame.
+    if (!isShowing() || getWidth() <= 0 || getHeight() <= 0)
+        return;
     glContext->attachTo(*this);
     glContext->initialiseOnThread();
+    if (glContext->getRawContext() == nullptr)
+        return;
     glContext->makeActive();
     lastRenderScale = calculateRenderScale();
     nvg = nvgCreateContext(0);
