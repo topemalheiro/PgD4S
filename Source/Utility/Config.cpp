@@ -5,11 +5,11 @@
 #include "Standalone/PlugDataWindow.h"
 
 #if PLUGDATA_FX
-char const* ProjectInfo::projectName = "plugdata-fx";
+char const* ProjectInfo::projectName = "PgD4S-fx"; // PgD4S: plugdata for Spite
 #elif PLUGDATA_MIDI
 char const* ProjectInfo::projectName = "plugdata-midi";
 #else
-char const* ProjectInfo::projectName = "plugdata";
+char const* ProjectInfo::projectName = "PgD4S";
 #endif
 
 #if PLUGDATA_STANDALONE
