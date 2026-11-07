@@ -142,6 +142,12 @@ PluginEditor::PluginEditor(PluginProcessor& p)
         // NEVER touch pluginConstrainer outside of plugin mode!
         pluginConstrainer.setMinimumSize(890, 660);
         setUseBorderResizer(true);
+
+        // PgD4S: as an LV2 plugin, let the host resize the editor too (Spite's
+        // plugin window), so it follows a resized or maximised window. This also
+        // makes JUCE's ui.ttl declare ui:resize instead of ui:noUserResize
+        if (p.wrapperType == AudioProcessor::wrapperType_LV2)
+            setResizable(true, false);
     } else {
         constrainer.setMinimumSize(890, 660);
     }
