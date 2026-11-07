@@ -5,6 +5,9 @@
 */
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#if JUCE_LINUX || JUCE_BSD
+#    include <dlfcn.h>
+#endif
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_animation/juce_animation.h>
 
@@ -99,6 +102,17 @@ private:
     WeakReference<Component> target;
     TooltipWindow tooltipWindow;
 };
+
+// PgD4S: Spite exports this while it creates a device face for its Device view
+static bool hostWantsDeviceFace()
+{
+#if JUCE_LINUX || JUCE_BSD
+    using Query = int (*)();
+    if (auto const query = reinterpret_cast<Query>(dlsym(RTLD_DEFAULT, "spite_lv2_ui_wants_face")))
+        return query() != 0;
+#endif
+    return false;
+}
 
 PluginEditor::PluginEditor(PluginProcessor& p)
     : AudioProcessorEditor(&p)
@@ -328,6 +342,7 @@ PluginEditor::PluginEditor(PluginProcessor& p)
     nvgSurface.toBehind(&tabComponent);
 
     editorIndex = ProjectInfo::isStandalone ? numEditors++ : 0;
+    embeddedFace = !ProjectInfo::isStandalone && hostWantsDeviceFace();
 
     if (SettingsFile::getInstance()->isUsingTouchMode()) {
         addAndMakeVisible(touchSelectionHelper.get());
@@ -397,7 +412,7 @@ PluginEditor::PluginEditor(PluginProcessor& p)
 #endif
 
     MessageManager::callAsync([_this = SafePointer(this)](){
-      if(_this && !_this->pd->findPatchInPluginMode(_this->editorIndex)) {
+      if(_this && !_this->embeddedFace && !_this->pd->findPatchInPluginMode(_this->editorIndex)) {
           if (!SettingsFile::getInstance()->getProperty<bool>("onboarding_completed") || SystemStats::getEnvironmentVariable("PLUGDATA_ONBOARDING", {}).isNotEmpty())
               Dialogs::showOnboardingDialog(&_this->openedDialog, _this.get());
       }
@@ -652,7 +667,7 @@ void PluginEditor::resized()
 #if JUCE_LINUX || JUCE_BSD
         nvgSurface.setRoundedBottomCorners(true, true);
 #endif
-        nvgSurface.updateBounds(getLocalBounds().withTrimmedTop(pluginMode->isWindowFullscreen() ? 0 : 40));
+        nvgSurface.updateBounds(getLocalBounds().withTrimmedTop(pluginMode->getTitlebarHeight()));
         return;
     }
 

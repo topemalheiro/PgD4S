@@ -190,6 +190,9 @@ public:
     CheckedTooltip tooltipWindow;
 
     int editorIndex;
+    // PgD4S: Spite embeds this editor in its Device view as the device's face (plugin mode with
+    // no title bar, sized by the host); the plugin's own window keeps the normal editor
+    bool embeddedFace = false;
 
     bool isInPluginMode() const;
 

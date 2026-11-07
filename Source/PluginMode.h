@@ -10,8 +10,13 @@
 #include "Canvas.h"
 #include "Standalone/PlugDataWindow.h"
 
+#if JUCE_LINUX || JUCE_BSD
+#    include <dlfcn.h>
+#endif
+
 class PluginMode final : public Component
-    , public NVGComponent {
+    , public NVGComponent
+    , private Timer {
 public:
     explicit PluginMode(PluginEditor* editor, pd::Patch::Ptr patch)
         : NVGComponent(this)
@@ -52,7 +57,12 @@ public:
 
         editor->nvgSurface.invalidateAll();
         cnv->setCachedComponentImage(new NVGSurface::InvalidationListener(editor->nvgSurface, cnv.get()));
-        patch->openInPluginMode = true;
+        // A device face in Spite leaves the patch's own plugin-mode setting alone: the plugin's
+        // window still opens the editor, as Max's edit window does
+        if (embedded)
+            titlebarHeight = 0;
+        else
+            patch->openInPluginMode = true;
 
         // Titlebar
         titleBar.setBounds(0, 0, width, titlebarHeight);
@@ -68,7 +78,7 @@ public:
         titleBar.addAndMakeVisible(*editorButton);
 
         setAlwaysOnTop(true);
-        setWantsKeyboardFocus(true);
+        setWantsKeyboardFocus(!embedded); // a face must not take the host's keyboard shortcuts
         setInterceptsMouseClicks(true, true);
 
         // Add this view to the editor
@@ -139,10 +149,14 @@ public:
         editor->constrainer.setSizeLimits(1, 1, 99000, 99000);
 #endif
         addAndMakeVisible(titleBar);
+        titleBar.setVisible(!embedded);
         cnv->connectionLayer.setVisible(false);
 
         set_plugdata_debugging_enabled(0);
         set_plugdata_activity_enabled(0);
+
+        if (embedded)
+            startTimer(250); // follow the Device view's height
     }
 
     ~PluginMode() override
@@ -166,6 +180,12 @@ public:
         setWidthAndHeight(jmin(scaleX, scaleY));
         return;
 #endif
+        if (embedded) {
+            // the face's own zoom, so it fills the height Spite's Device view gives faces
+            lastHostFaceHeight = hostFaceHeight();
+            setWidthAndHeight(lastHostFaceHeight > 0 ? lastHostFaceHeight / height : 1.0f);
+            return;
+        }
         // set scale to the last scale that was set for this patches plugin mode
         int const previousScale = patchPtr->pluginModeScale;
         scaleComboBox.setText(String(previousScale) + String("%"), dontSendNotification);
@@ -182,8 +202,10 @@ public:
 
 #if JUCE_LINUX || JUCE_BSD
         // We need to add the window margin for the shadow on Linux, or else X11 will try to make the window smaller than it should be when the window moves
-        newHeight += 36;
-        newWidth += 36;
+        if (ProjectInfo::isStandalone) {
+            newHeight += 36;
+            newWidth += 36;
+        }
 #endif
 
         if (auto* mainWindow = dynamic_cast<PlugDataWindow*>(editor->getTopLevelComponent())) {
@@ -232,11 +254,13 @@ public:
         nvgScale(nvg, scale, scale);
         nvgTranslate(nvg, cnv->getX(), cnv->getY());
 
-        cnv->performRender(nvg, cnv->getLocalArea(this, area.translated(0, 40)));
+        cnv->performRender(nvg, cnv->getLocalArea(this, area.translated(0, getTitlebarHeight())));
     }
 
     void closePluginMode()
     {
+        if (embedded)
+            return; // a device face stays one
         auto const constrainedNewBounds = windowBounds.withWidth(std::max(windowBounds.getWidth(), 890)).withHeight(std::max(windowBounds.getHeight(), 660));
         if (auto* mainWindow = dynamic_cast<PlugDataWindow*>(editor->getTopLevelComponent())) {
             editor->constrainer.setSizeLimits(890, 660, 99000, 99000);
@@ -269,7 +293,7 @@ public:
 
     void paint(Graphics& g) override
     {
-        if (!cnv)
+        if (!cnv || embedded)
             return;
 
         if (ProjectInfo::isStandalone && isWindowFullscreen()) {
@@ -338,7 +362,7 @@ public:
         return;
 #endif
 
-        if (ProjectInfo::isStandalone && isWindowFullscreen()) {
+        if (embedded || (ProjectInfo::isStandalone && isWindowFullscreen())) {
             // Calculate the scale factor required to fit the editor in the screen
             float const scaleX = static_cast<float>(getWidth()) / width;
             float const scaleY = static_cast<float>(getHeight()) / height;
@@ -492,14 +516,50 @@ public:
         return cnv.get();
     }
 
+    // PgD4S: the height Spite's Device view gives faces (0: not hosted by Spite)
+    static int hostFaceHeight()
+    {
+#if JUCE_LINUX || JUCE_BSD
+        using Query = int (*)();
+        if (auto const query = reinterpret_cast<Query>(dlsym(RTLD_DEFAULT, "spite_lv2_ui_face_height")))
+            return query();
+#endif
+        return 0;
+    }
+
+    void timerCallback() override
+    {
+        if (hostFaceHeight() != lastHostFaceHeight)
+            updateSize();
+    }
+
+    int getTitlebarHeight() const
+    {
+        return isWindowFullscreen() ? 0 : titlebarHeight;
+    }
+
+    // the face's size: the patch's presentation size (a converted Max for Live device), else
+    // the patch window's size
+    Point<float> faceSize() const
+    {
+        int w = 0, h = 0;
+        if (auto x = cnv->patch.getPointer()) {
+            if (canvas_presentation_getsize(x.get(), &w, &h))
+                return { static_cast<float>(w), static_cast<float>(h) };
+        }
+        return { static_cast<float>(cnv->patchWidth.getValue()) + 1.0f, static_cast<float>(cnv->patchHeight.getValue()) + 1.0f };
+    }
+
 private:
     pd::Patch::Ptr patchPtr;
     std::unique_ptr<Canvas> cnv;
     PluginEditor* editor;
     ComponentPeer* desktopWindow;
 
+    bool const embedded = editor->embeddedFace;
+    int lastHostFaceHeight = 0;
     Component titleBar;
-    int const titlebarHeight = 40;
+    int titlebarHeight = 40;
     int nativeTitleBarHeight = 0;
     ComboBox scaleComboBox;
     std::unique_ptr<MainToolbarButton> editorButton;
@@ -514,8 +574,8 @@ private:
     Rectangle<int> originalPluginWindowBounds;
 
     Rectangle<int> windowBounds;
-    float const width = static_cast<float>(cnv->patchWidth.getValue()) + 1.0f;
-    float const height = static_cast<float>(cnv->patchHeight.getValue()) + 1.0f;
+    float const width = faceSize().x;
+    float const height = faceSize().y;
 
     float pluginModeScale = 1.0f;
     float scaleDPIMult = 1.0f;

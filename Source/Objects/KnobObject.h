@@ -917,9 +917,12 @@ public:
             nvgCircle(nvg, circleBounds.getCentreX(), circleBounds.getCentreY(), circleBounds.getWidth() / 2.0f);
             nvgFill(nvg);
 
-            nvgStrokeColor(nvg, nvgColour(PlugDataColours::objectOutlineColour));
-            nvgStrokeWidth(nvg, 1.0f);
-            nvgStroke(nvg);
+            // PgD4S: a transparent knob (Live's dials, converted) has no outline
+            if (!::getValue<bool>(transparent)) {
+                nvgStrokeColor(nvg, nvgColour(PlugDataColours::objectOutlineColour));
+                nvgStrokeWidth(nvg, 1.0f);
+                nvgStroke(nvg);
+            }
 
             knob.render(nvg);
         }

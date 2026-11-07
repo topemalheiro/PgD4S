@@ -751,7 +751,10 @@ void TabComponent::handleAsyncUpdate()
 
     // Check if there is a patch that should be in plugin mode for this tabComponents editor
     // If so, we create a new pluginmode object, and delete all canvases from this editor
-    if (auto patchInPluginMode = pd->findPatchInPluginMode(editor->editorIndex)) {
+    auto patchInPluginMode = pd->findPatchInPluginMode(editor->editorIndex);
+    if (!patchInPluginMode && editor->embeddedFace && !pd->patches.empty())
+        patchInPluginMode = pd->patches[0]; // PgD4S: Spite's device face
+    if (patchInPluginMode) {
         if (patchInPluginMode->windowIndex == editorIndex) {
             // Initialise plugin mode
             clearCanvases();

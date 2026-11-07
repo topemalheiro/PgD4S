@@ -373,6 +373,11 @@ void Instance::initialisePd(String& pdlua_version)
                         if (!activeEditor || !patchToOpen.isValid())
                             return;
 
+                        // PgD4S: a face in plugin mode can't show the subpatch, and opening it
+                        // anyway would add it to the patches the session saves as top-level ones
+                        if (activeEditor->isInPluginMode())
+                            return;
+
                         for (auto const& patch : pd->patches) {
                             if (patch->getRawPointer() == patchToOpen.getRaw<t_glist>()) {
                                 activeEditor->getTabComponent().openPatch(patch);
