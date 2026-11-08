@@ -78,6 +78,38 @@ public:
     }
 };
 
+// PgD4S: a one-click presentation mode toggle, like the one in a Max patcher window. It runs the
+// same command as Ctrl+P and shows as on while the current canvas is in presentation mode.
+class PresentationModeButton final : public SmallIconButton {
+public:
+    explicit PresentationModeButton(PluginEditor* e)
+        : SmallIconButton(Icons::Presentation)
+        , editor(e)
+    {
+    }
+
+    // Built on hover, so it names whatever key the command is mapped to now
+    String getTooltip() override
+    {
+        String tooltip = "Presentation mode";
+        auto const keys = editor->commandManager.getKeyMappings()->getKeyPressesAssignedToCommand(CommandIDs::TogglePresentationMode);
+        if (!keys.isEmpty()) {
+#if JUCE_MAC
+            auto const shortcut = keys[0].getTextDescriptionWithIcons();
+#else
+            auto shortcut = keys[0].getTextDescription().replace(" + ", "+"); // "ctrl + P" -> "Ctrl+P"
+            for (auto const* modifier : { "ctrl+", "shift+", "alt+" })
+                shortcut = shortcut.replace(modifier, String(modifier).substring(0, 1).toUpperCase() + String(modifier).substring(1));
+#endif
+            tooltip << " (" << shortcut << ")";
+        }
+        return tooltip;
+    }
+
+private:
+    PluginEditor* editor;
+};
+
 class ZoomLabel final : public Component
     , public SettableTooltipClient {
 public:
@@ -323,27 +355,30 @@ Statusbar::Statusbar(PluginProcessor* processor, PluginEditor* e)
 
     editModeGroup->mainButton.onClick = [this] {
         if (auto* cnv = editor->getCurrentCanvas()) {
-            if (getValue<bool>(cnv->presentationMode)) {
-                editModeGroup->mainButton.setButtonText(Icons::Edit);
-                cnv->presentationMode = false;
-            }
+            // Presentation mode is locked, so this unlocks into edit mode and leaves it
+            cnv->presentationMode = false;
             cnv->locked = !getValue<bool>(cnv->locked);
-            editModeGroup->mainButton.setButtonText(getValue<bool>(cnv->locked) ? Icons::Lock : Icons::Edit);
+            setEditButtonState(getValue<bool>(cnv->locked));
         }
     };
 
     editModeGroup->chevron.onClick = [this] {
         auto modePicker = std::make_unique<CanvasModePicker>(editor);
         modePicker->updateModeIcon = [this](int mode) {
-            if (mode == 2) {
-                editModeGroup->mainButton.setButtonText(Icons::Presentation);
-            } else if (mode == 1) {
-                editModeGroup->mainButton.setButtonText(Icons::Lock);
-            } else {
-                editModeGroup->mainButton.setButtonText(Icons::Edit);
-            }
+            setEditButtonState(mode != 0, mode == 2);
         };
         editor->showCalloutBox(std::move(modePicker), editModeGroup->chevron.getScreenBounds());
+    };
+
+    presentationButton = std::make_unique<PresentationModeButton>(editor);
+    addAndMakeVisible(*presentationButton);
+    presentationButton->onClick = [this] {
+        ApplicationCommandTarget::InvocationInfo info(CommandIDs::TogglePresentationMode);
+        info.invocationMethod = ApplicationCommandTarget::InvocationInfo::fromButton;
+        editor->invoke(info, false);
+
+        if (auto const* cnv = editor->getCurrentCanvas())
+            setEditButtonState(getValue<bool>(cnv->locked), getValue<bool>(cnv->presentationMode));
     };
 
     detectiveModeButton = std::make_unique<DetectiveModeButton>("Detective");
@@ -399,11 +434,9 @@ void Statusbar::handleAsyncUpdate()
 
 void Statusbar::setEditButtonState(bool locked, bool present)
 {
-    if (present) {
-        editModeGroup->mainButton.setButtonText(Icons::Presentation);
-    } else {
-        editModeGroup->mainButton.setButtonText(locked ? Icons::Lock : Icons::Edit);
-    }
+    // PgD4S: presentation mode shows on its own button; the edit/run button shows the lock it implies
+    editModeGroup->mainButton.setButtonText(locked || present ? Icons::Lock : Icons::Edit);
+    presentationButton->setToggleState(present, dontSendNotification);
 }
 
 void Statusbar::setDetectiveModeEnabled(bool enabled)
@@ -443,9 +476,9 @@ void Statusbar::paint(Graphics& g)
         g.drawLine(x, 9.0f, x, getHeight() - 9.0f);
     };
 
+    drawSep(*presentationButton);
     drawSep(*zoomSelector);
     drawSep(*overlayGroup);
-    drawSep(*detectiveSpeedSlider);
 }
 
 void Statusbar::resized()
@@ -455,6 +488,13 @@ void Statusbar::resized()
     bool const floatingPanels = SettingsFile::getInstance()->getProperty<bool>("floating_panels");
     auto b = floatingPanels ? getLocalBounds().reduced(6, 0) : getLocalBounds().withTrimmedLeft(6);
     constexpr int spacing = 10;
+
+    // PgD4S: the canvas modes come first, in the corner where Max keeps its lock and presentation
+    // buttons; in the middle, touch mode's selection helper covers them while editing
+    editModeGroup->setBounds(b.removeFromLeft(34));
+    b.removeFromLeft(4);
+    presentationButton->setBounds(b.removeFromLeft(22));
+    b.removeFromLeft(spacing);
 
     zoomSelector->setBounds(b.removeFromLeft(55));
     b.removeFromLeft(spacing);
@@ -469,7 +509,4 @@ void Statusbar::resized()
     b.removeFromLeft(4);
 
     detectiveSpeedSlider->setBounds(b.removeFromLeft(120));
-    b.removeFromLeft(spacing);
-
-    editModeGroup->setBounds(b.removeFromLeft(34));
 }

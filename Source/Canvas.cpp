@@ -2506,6 +2506,7 @@ void Canvas::valueChanged(Value& v)
     else if (v.refersToSameSourceAs(presentationMode)) {
         connectionLayer.setVisible(!getValue<bool>(presentationMode));
         deselectAll();
+        editor->updateCommandStatus(); // PgD4S: the status bar's presentation button follows any change
     } else if (v.refersToSameSourceAs(hideNameAndArgs)) {
         if (!patch.getPointer())
             return;

@@ -16,6 +16,7 @@ class PluginProcessor;
 class LatencyDisplayButton;
 class ZoomLabel;
 class StatusbarButtonGroup;
+class PresentationModeButton;
 
 class Statusbar;
 
@@ -52,6 +53,7 @@ private:
     std::unique_ptr<StatusbarButtonGroup> gridGroup;
     std::unique_ptr<StatusbarButtonGroup> overlayGroup;
     std::unique_ptr<StatusbarButtonGroup> editModeGroup;
+    std::unique_ptr<PresentationModeButton> presentationButton; // PgD4S: one click to presentation mode, as in Max
     std::unique_ptr<TextButton> detectiveModeButton;
     std::unique_ptr<Slider> detectiveSpeedSlider;
 
