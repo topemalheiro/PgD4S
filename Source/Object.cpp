@@ -291,6 +291,12 @@ void Object::mouseMove(MouseEvent const& e)
 
 void Object::applyBounds()
 {
+    // PgD4S: with a presentation layout showing (an unlocked presentation), moving and resizing edit the layout
+    if (cnv->usesPresentationLayout()) {
+        applyPresentationBounds();
+        return;
+    }
+
     UnorderedMap<Object*, Rectangle<int>> newObjectSizes;
     for (auto* obj : cnv->getSelectionOfType<Object>())
         newObjectSizes[obj] = obj->getObjectBounds();
@@ -332,10 +338,73 @@ void Object::applyBounds()
             editor->updateCommandStatus();
     });
 }
+// PgD4S: the selection's new places become presentation positions; a new size is the object's own
+// (shared with the patch), so the patch layout keeps every object where it was
+void Object::applyPresentationBounds()
+{
+    SmallArray<pd::Interface::PresentationPosition> positions;
+    SmallArray<std::pair<Object*, Rectangle<int>>> resized;
+
+    for (auto* obj : cnv->getSelectionOfType<Object>()) {
+        auto* ptr = obj->getPointer();
+        Point<int> presentationPosition;
+        if (!ptr || !obj->gui || !cnv->getPresentationPosition(ptr, presentationPosition))
+            continue;
+
+        auto const shown = obj->getObjectBounds();
+        auto const pdBounds = obj->gui->getPdBounds();
+        auto const placed = pdBounds.getPosition() + obj->getPresentationOffset();
+
+        if (ds.wasResized && shown.getWidth() > 0 && shown.getHeight() > 0)
+            resized.add({ obj, shown.withPosition(pdBounds.getPosition()) });
+
+        if (auto const moved = shown.getPosition() - placed; !moved.isOrigin())
+            positions.add({ ptr, presentationPosition.x + moved.x, presentationPosition.y + moved.y });
+    }
+
+    if (!positions.empty() || !resized.empty()) {
+        auto const undoName = ds.wasResized ? "Resize" : "Move";
+        cnv->pd->lockAudioThread();
+        cnv->patch.startUndoSequence(undoName);
+
+        for (auto& [obj, bounds] : resized)
+            obj->gui->setPdBounds(bounds);
+        cnv->patch.setPresentationPositions(positions);
+
+        if (auto* patch = cnv->patch.getRawPointer())
+            canvas_dirty(patch, 1);
+
+        cnv->patch.endUndoSequence(undoName);
+        cnv->pd->unlockAudioThread();
+    }
+
+    cnv->updatePresentationLayout();
+    for (auto* obj : cnv->objects)
+        obj->updateBounds();
+    cnv->synchroniseAllCanvases(); // other views of this patch, e.g. the device face Spite shows
+
+    MessageManager::callAsync([editor = SafePointer(this->editor)] {
+        if (editor)
+            editor->updateCommandStatus();
+    });
+}
+
 bool Object::isHiddenByPresentation() const
 {
+    // An object still being typed has no Pd object yet: it stays visible (it joins the layout once made)
     Point<int> position;
-    return cnv->usesPresentationLayout() && !cnv->getPresentationPosition(getPointer(), position);
+    auto const* ptr = getPointer();
+    return ptr && cnv->usesPresentationLayout() && !cnv->getPresentationPosition(ptr, position);
+}
+
+Point<int> Object::getPresentationOffset() const
+{
+    Point<int> position;
+    if (auto* ptr = getPointer(); ptr && cnv->usesPresentationLayout() && cnv->getPresentationPosition(ptr, position)) {
+        if (auto const* text = pd_checkobject(reinterpret_cast<t_pd*>(ptr)))
+            return position - Point<int>(text->te_xpix, text->te_ypix);
+    }
+    return {};
 }
 
 void Object::updateBounds()
@@ -396,6 +465,12 @@ void Object::setType(String const& newType, pd::WeakReference existingObject)
             auto const rect = getObjectBounds();
             auto* newObject = patch->createObject(rect.getX(), rect.getY(), newType);
             objectPtr = pd::WeakReference(newObject, cnv->pd);
+
+            // PgD4S: typed into an unlocked presentation, it joins the layout where it was typed (as in Max)
+            if (newObject && cnv->usesPresentationLayout()) {
+                patch->addToPresentation(newObject);
+                cnv->updatePresentationLayout();
+            }
         }
     } else {
         objectPtr = existingObject;
@@ -780,7 +855,8 @@ void Object::mouseDown(MouseEvent const& e)
         return;
     }
 
-    if (cnv->isGraph || getValue<bool>(presentationMode) || getValue<bool>(locked) || getValue<bool>(commandLocked)) {
+    // PgD4S: an unlocked presentation can be edited, as in Max (presentation mode is otherwise locked)
+    if (cnv->isGraph || getValue<bool>(locked) || getValue<bool>(commandLocked)) {
         wasLockedOnMouseDown = true;
         return;
     }

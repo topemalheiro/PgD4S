@@ -1057,6 +1057,18 @@ bool Canvas::getPresentationPosition(t_gobj const* object, Point<int>& position)
     return true;
 }
 
+void Canvas::moveObjectsAsShown(SmallArray<t_gobj*> const& objects, int const dx, int const dy)
+{
+    if (!usesPresentationLayout()) {
+        patch.moveObjects(objects, dx, dy);
+        return;
+    }
+
+    patch.movePresentationPositions(objects, dx, dy);
+    updatePresentationLayout();
+    synchroniseAllCanvases(); // other views of this patch, e.g. the device face Spite shows
+}
+
 void Canvas::performSynchronise()
 {
     static bool alreadyFlushed = false;
@@ -1316,9 +1328,8 @@ void Canvas::mouseDown(MouseEvent const& e)
                     // Lock if cmd + click on canvas
                     deselectAll();
 
-                    presentationMode.setValue(false);
-
                     // when command + click on canvas, swap between locked / edit mode
+                    // (PgD4S: in presentation mode too, which stays on, as in Max)
                     locked.setValue(!locked.getValue());
                     locked.getValueSource().sendChangeMessage(true);
 
@@ -1548,7 +1559,7 @@ bool Canvas::keyPressed(KeyPress const& key)
             }
         }
 
-        patch.moveObjects(pdObjects, x, y);
+        moveObjectsAsShown(pdObjects, x, y);
 
         // Update object bounds and store the total bounds of the selection
         auto totalBounds = Rectangle<int>();
@@ -1838,7 +1849,7 @@ void Canvas::duplicateSelection()
         moveObjects.add(dup->getPointer());
     }
 
-    patch.moveObjects(moveObjects, dragState.duplicateOffset.x, dragState.duplicateOffset.y);
+    moveObjectsAsShown(moveObjects, dragState.duplicateOffset.x, dragState.duplicateOffset.y);
 
     for (auto* object : objects) {
         object->updateBounds();
@@ -2641,6 +2652,8 @@ void Canvas::findLassoItemsInArea(Array<WeakReference<Component>>& itemsFound, R
 
     if (!altDown) { // Alt enable connection only mode
         for (auto* object : objects) {
+            if (!object->isVisible()) // PgD4S: hidden by presentation mode
+                continue;
             if (lassoBounds.intersects(object->getSelectableBounds())) {
                 itemsFound.add(object);
             } else if (!ModifierKeys::getCurrentModifiers().isAnyModifierKeyDown()) {
@@ -2752,12 +2765,9 @@ void Canvas::receiveMessage(t_symbol* symbol, SmallArray<pd::Atom> const& atoms)
             return;
 
         if (atoms.size() >= 1) {
-            if (int const flag = atoms[0].getFloat(); flag % 2 == 0) {
-                locked = true;
-            } else {
-                locked = false;
-                presentationMode = false;
-            }
+            // PgD4S: only the lock; presentation mode can be edited unlocked, as in Max
+            // (this also hears the editmode our own lock change sends to Pd)
+            locked = static_cast<int>(atoms[0].getFloat()) % 2 == 0;
         }
         break;
     }

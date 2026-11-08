@@ -186,6 +186,64 @@ struct Interface {
         instanceEditor->canvas_undo_already_set_move = 0;
     }
 
+    struct PresentationPosition {
+        t_gobj* object;
+        int x, y;
+    };
+
+    /* PgD4S: set objects' presentation positions as one undoable move (objects
+       without a presentation position are left alone) */
+    static void setPresentationPositions(t_canvas* cnv, SmallArray<PresentationPosition> const& positions)
+    {
+        ScopedCurrentCanvas scopedCurrent(cnv);
+
+        glist_noselect(cnv);
+        for (auto const& position : positions) {
+            if (canvas_presentation_get(cnv, position.object, nullptr, nullptr))
+                glist_select(cnv, position.object);
+        }
+
+        if (!cnv->gl_editor || !cnv->gl_editor->e_selection)
+            return;
+
+        auto* instanceEditor = getInstanceEditor();
+        if (!instanceEditor->canvas_undo_already_set_move) {
+            canvas_undo_add(cnv, UNDO_MOTION, "motion", canvas_undo_set_move(cnv, 1));
+            instanceEditor->canvas_undo_already_set_move = 1;
+        }
+
+        for (auto const& position : positions) {
+            if (canvas_presentation_get(cnv, position.object, nullptr, nullptr))
+                canvas_presentation_set(cnv, position.object, position.x, position.y);
+        }
+
+        canvas_dirty(cnv, 1);
+        glist_noselect(cnv);
+
+        instanceEditor->canvas_undo_already_set_move = 0;
+    }
+
+    /* PgD4S: shift objects' presentation positions by (dx, dy), as one undoable move */
+    static void movePresentationPositions(t_canvas* cnv, int const dx, int const dy, SmallArray<t_gobj*> const& objects)
+    {
+        SmallArray<PresentationPosition> positions;
+        for (auto* obj : objects) {
+            int x = 0, y = 0;
+            if (canvas_presentation_get(cnv, obj, &x, &y))
+                positions.add({ obj, x + dx, y + dy });
+        }
+        setPresentationPositions(cnv, positions);
+    }
+
+    /* PgD4S: put an object into the presentation layout at its patch position */
+    static void addToPresentation(t_canvas* cnv, t_gobj* obj)
+    {
+        if (auto const* text = checkObject(obj)) {
+            canvas_presentation_set(cnv, obj, text->te_xpix, text->te_ypix);
+            canvas_dirty(cnv, 1);
+        }
+    }
+
     static t_gobj* getNewest(t_canvas const* cnv)
     {
         // Regular pd_newest won't work because it doesn't get assigned for some gui components

@@ -317,8 +317,20 @@ t_gobj* Patch::renameObject(t_object* obj, String const& name)
     String const newName = tokens.joinIntoString(" ");
 
     if (auto patch = ptr.get<t_glist>()) {
+        // PgD4S: Pd retypes an object by making a new one; that one keeps the old one's presentation position
+        int presentationX = 0, presentationY = 0;
+        bool const presented = canvas_presentation_get(patch.get(), &obj->te_g, &presentationX, &presentationY);
+
         pd::Interface::renameObject(patch.get(), &obj->te_g, newName.toRawUTF8(), newName.getNumBytesAsUTF8());
-        return pd::Interface::getNewest(patch.get());
+        auto* renamed = pd::Interface::getNewest(patch.get());
+
+        // Deleting the old object dropped its entry; an entry still there means nothing was remade
+        // (only pointers are compared, so a freed old object is never read)
+        if (presented && renamed && !canvas_presentation_get(patch.get(), &obj->te_g, nullptr, nullptr)
+            && !canvas_presentation_get(patch.get(), renamed, nullptr, nullptr))
+            canvas_presentation_set(patch.get(), renamed, presentationX, presentationY);
+
+        return renamed;
     }
 
     return nullptr;
@@ -506,6 +518,27 @@ void Patch::moveObjects(SmallArray<t_gobj*> const& objects, int const dx, int co
 {
     if (auto patch = ptr.get<t_glist>()) {
         pd::Interface::moveObjects(patch.get(), dx, dy, objects);
+    }
+}
+
+void Patch::movePresentationPositions(SmallArray<t_gobj*> const& objects, int const dx, int const dy)
+{
+    if (auto patch = ptr.get<t_glist>()) {
+        pd::Interface::movePresentationPositions(patch.get(), dx, dy, objects);
+    }
+}
+
+void Patch::setPresentationPositions(SmallArray<pd::Interface::PresentationPosition> const& positions)
+{
+    if (auto patch = ptr.get<t_glist>()) {
+        pd::Interface::setPresentationPositions(patch.get(), positions);
+    }
+}
+
+void Patch::addToPresentation(t_gobj* object)
+{
+    if (auto patch = ptr.get<t_glist>()) {
+        pd::Interface::addToPresentation(patch.get(), object);
     }
 }
 

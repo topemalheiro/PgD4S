@@ -355,10 +355,9 @@ Statusbar::Statusbar(PluginProcessor* processor, PluginEditor* e)
 
     editModeGroup->mainButton.onClick = [this] {
         if (auto* cnv = editor->getCurrentCanvas()) {
-            // Presentation mode is locked, so this unlocks into edit mode and leaves it
-            cnv->presentationMode = false;
+            // PgD4S: the lock only, like Ctrl+E: an unlocked presentation edits its layout
             cnv->locked = !getValue<bool>(cnv->locked);
-            setEditButtonState(getValue<bool>(cnv->locked));
+            setEditButtonState(getValue<bool>(cnv->locked), getValue<bool>(cnv->presentationMode));
         }
     };
 
@@ -434,8 +433,9 @@ void Statusbar::handleAsyncUpdate()
 
 void Statusbar::setEditButtonState(bool locked, bool present)
 {
-    // PgD4S: presentation mode shows on its own button; the edit/run button shows the lock it implies
-    editModeGroup->mainButton.setButtonText(locked || present ? Icons::Lock : Icons::Edit);
+    // PgD4S: presentation mode shows on its own button; the edit/run button shows the lock, which
+    // presentation mode can be in or out of (unlocked, it edits the presentation layout)
+    editModeGroup->mainButton.setButtonText(locked ? Icons::Lock : Icons::Edit);
     presentationButton->setToggleState(present, dontSendNotification);
 }
 

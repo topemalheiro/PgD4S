@@ -41,6 +41,11 @@ public:
 
     void moveObjects(SmallArray<t_gobj*> const&, int x, int y);
 
+    // PgD4S: the presentation layout's positions (Max-style presentation), changed as an undoable move
+    void movePresentationPositions(SmallArray<t_gobj*> const&, int dx, int dy);
+    void setPresentationPositions(SmallArray<pd::Interface::PresentationPosition> const& positions);
+    void addToPresentation(t_gobj* object); // at its patch position
+
     void moveObjectTo(t_gobj* object, int x, int y);
 
     void finishRemove();

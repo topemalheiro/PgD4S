@@ -1213,13 +1213,7 @@ void PluginEditor::handleAsyncUpdate()
         bool const commandLocked = getValue<bool>(cnv->commandLocked);
         bool const isDragging = cnv->dragState.didStartDragging && !cnv->isDraggingLasso && cnv->locked == var(false);
 
-        if (getValue<bool>(cnv->presentationMode)) {
-            statusbar->setEditButtonState(true, true);
-        } else if (locked || commandLocked) {
-            statusbar->setEditButtonState(true);
-        } else {
-            statusbar->setEditButtonState(false);
-        }
+        statusbar->setEditButtonState(locked || commandLocked, getValue<bool>(cnv->presentationMode));
 
         auto const currentUndoState = cnv->patch.canUndo() && !isDragging && !locked;
         auto const currentRedoState = cnv->patch.canRedo() && !isDragging && !locked;
@@ -1875,19 +1869,23 @@ bool PluginEditor::perform(InvocationInfo const& info)
     }
     case CommandIDs::SelectAll: {
         cnv = getCurrentCanvas();
+        // PgD4S: only what's shown; presentation mode hides connections and some objects
         for (auto* object : cnv->objects) {
-            cnv->setSelected(object, true, false);
+            if (object->isVisible())
+                cnv->setSelected(object, true, false);
         }
-        for (auto* con : cnv->connections) {
-            cnv->setSelected(con, true, false);
+        if (!getValue<bool>(cnv->presentationMode)) {
+            for (auto* con : cnv->connections) {
+                cnv->setSelected(con, true, false);
+            }
         }
         updateCommandStatus();
         cnv->updateSidebarSelection();
         return true;
     }
     case CommandIDs::Lock: {
+        // PgD4S: in presentation mode too, which stays on: an unlocked presentation edits its layout, as in Max
         cnv->locked = !getValue<bool>(cnv->locked);
-        cnv->presentationMode = false;
         return true;
     }
     case CommandIDs::ConnectionStyle: {
@@ -2147,9 +2145,7 @@ void PluginEditor::lookAndFeelChanged()
 void PluginEditor::commandKeyChanged(bool const isHeld)
 {
     if (auto const* cnv = getCurrentCanvas()) {
-        if (!getValue<bool>(cnv->presentationMode)) {
-            statusbar->setEditButtonState(isHeld || getValue<bool>(cnv->locked));
-        }
+        statusbar->setEditButtonState(isHeld || getValue<bool>(cnv->locked), getValue<bool>(cnv->presentationMode));
     }
 }
 

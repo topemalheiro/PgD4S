@@ -61,6 +61,7 @@ public:
     void setType(String const& newType, pd::WeakReference existingObject = nullptr);
     void updateBounds();
     void applyBounds();
+    void applyPresentationBounds();
 
     void showEditor();
     void hideEditor();
@@ -77,6 +78,8 @@ public:
     void openHelpPatch() const;
     t_gobj* getPointer() const;
     bool isHiddenByPresentation() const;
+    // PgD4S: how far the presentation layout shows this object from its patch position ((0, 0) without one)
+    Point<int> getPresentationOffset() const;
 
     SmallArray<Connection*> getConnections() const;
 

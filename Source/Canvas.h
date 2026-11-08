@@ -122,6 +122,9 @@ public:
     // (saved as "#X presentation obj ..."); presentation mode, plugin mode and graph-on-parent
     // windows show presented objects there and hide the rest.
     void updatePresentationLayout();
+    // PgD4S: moves objects where they're shown: with a presentation layout showing, their presentation
+    // positions, otherwise their patch positions (both undoable)
+    void moveObjectsAsShown(SmallArray<t_gobj*> const& objects, int dx, int dy);
     bool usesPresentationLayout() const;
     bool getPresentationPosition(t_gobj const* object, Point<int>& position) const;
     UnorderedMap<t_gobj const*, Point<int>> presentationPositions;
