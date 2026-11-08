@@ -39,6 +39,8 @@ struct OSUtils {
     static void maximiseLinuxWindow(juce::ComponentPeer* peer, bool shouldBeMaximised);
     static bool isLinuxWindowMaximised(juce::ComponentPeer* peer);
     static void updateLinuxWindowConstraints(juce::ComponentPeer* peer);
+    // PgD4S: false while the window can't be seen, e.g. a host has hidden a window it sits in
+    static bool isLinuxWindowViewable(juce::ComponentPeer* peer);
 #elif JUCE_MAC
     static void setWindowMovable(juce::ComponentPeer* peer, bool canMove);
     static void enableInsetTitlebarButtons(juce::ComponentPeer* peer, bool enabled);

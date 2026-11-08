@@ -161,6 +161,9 @@ private:
     uint32 lastRenderTime;
 #if JUCE_LINUX
     bool skipFrame = false;
+    // PgD4S: whether the window can be seen (see NVGSurface::render)
+    bool windowViewable = true;
+    uint32 lastViewableCheck = 0;
 #endif
 
 #if NANOVG_GL_IMPLEMENTATION

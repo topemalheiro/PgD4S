@@ -228,6 +228,25 @@ void OSUtils::updateLinuxWindowConstraints(juce::ComponentPeer* peer)
     juce::XWindowSystem::getInstance()->updateConstraints(reinterpret_cast<::Window>(peer->getNativeHandle()));
 }
 
+bool OSUtils::isLinuxWindowViewable(ComponentPeer* peer)
+{
+#    if JUCE_WAYLAND
+    if (WaylandWindowSystem::getInstance()->isWaylandAvailable()) {
+        return true;
+    }
+#    endif
+    auto* display = juce::XWindowSystem::getInstance()->getDisplay();
+    if (!display || !peer) {
+        return true;
+    }
+    juce::XWindowSystemUtilities::ScopedXLock xLock;
+    XWindowAttributes attributes;
+    if (!juce::X11Symbols::getInstance()->xGetWindowAttributes(display, (::Window)peer->getNativeHandle(), &attributes)) {
+        return true;
+    }
+    return attributes.map_state == IsViewable;
+}
+
 bool OSUtils::isLinuxWindowMaximised(ComponentPeer* peer)
 {
 #    if JUCE_WAYLAND

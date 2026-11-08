@@ -21,6 +21,7 @@ void nvgluSetCornerRadius(float radius, bool left, bool right);
 
 #include "NVGSurface.h"
 #include "Utility/NVGGraphicsContext.h"
+#include "Utility/OSUtils.h"
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 
@@ -342,6 +343,22 @@ void NVGSurface::render()
     if (!getPeer()) {
         return;
     }
+
+#if JUCE_LINUX
+    // PgD4S: as a device face in Spite the window gets hidden along with the host's view (an
+    // ancestor window is unmapped), which X never tells it about. So look every few frames:
+    // draw nothing while it can't be seen, and draw it all once it can be seen again,
+    // because nothing kept what it showed (it would stay blank until something changed)
+    if (auto const now = Time::getMillisecondCounter(); now - lastViewableCheck >= (windowViewable ? 200u : 50u)) {
+        lastViewableCheck = now;
+        bool const viewable = OSUtils::isLinuxWindowViewable(getPeer());
+        if (viewable && !windowViewable)
+            invalidateAll();
+        windowViewable = viewable;
+    }
+    if (!windowViewable)
+        return;
+#endif
 
     // Do this right before rendering, so that it doesn't show a frame with the last rendered content skewed to the new view size
     if (getBounds() != currentBounds) {
