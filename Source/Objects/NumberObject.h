@@ -28,6 +28,7 @@ class NumberObject final : public ObjectBase {
 
     float preFocusValue;
     float value = 0.0f;
+    bool inactive = false; // PgD4S: "active 0" (Max's live.numbox): greyed out, no mouse
 
     NVGcolor backgroundCol;
     NVGcolor foregroundCol;
@@ -151,6 +152,7 @@ public:
             min = nbx->x_min;
             max = nbx->x_max;
             value = nbx->x_val;
+            inactive = nbx->x_inactive;
         }
 
         input.setValue(value, dontSendNotification, false);
@@ -164,6 +166,7 @@ public:
         auto const fontHeight = getValue<int>(iemHelper.labelHeight);
         input.setFont(Fonts::getTabularNumbersFont().withHeight(fontHeight + 3.0f));
         readAttributes();
+        input.setInterceptsMouseClicks(!inactive, !inactive);
         updateLabel();
     }
 
@@ -271,9 +274,21 @@ public:
         repaint();
     }
 
+    bool canReceiveMouseEvent(int x, int y) override
+    {
+        return !inactive;
+    }
+
     void receiveObjectMessage(hash32 const symbol, SmallArray<pd::Atom> const& atoms) override
     {
         switch (symbol) {
+        case hash("active"): {
+            if (auto nbx = ptr.get<t_my_numbox>())
+                inactive = nbx->x_inactive;
+            input.setInterceptsMouseClicks(!inactive, !inactive);
+            repaint();
+            break;
+        }
         case hash("float"):
         case hash("list"):
         case hash("set"): {
@@ -421,6 +436,11 @@ public:
     void render(NVGcontext* nvg) override
     {
         auto const b = getLocalBounds().toFloat();
+
+        // PgD4S: inactive ("active 0") draws greyed out
+        NVGScopedState inactiveState(nvg);
+        if (inactive)
+            nvgGlobalAlpha(nvg, 0.4f);
 
         bool const selected = object->isSelected() && !cnv->isGraph;
 

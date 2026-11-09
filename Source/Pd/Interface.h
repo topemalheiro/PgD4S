@@ -833,8 +833,11 @@ struct Interface {
                     srcno, t.tr_outno, sinkno, t.tr_inno, t.outconnect_path_info);
             }
         }
-        /* PgD4S: the Max-style presentation layout (canvas_saveto writes it for subpatches) */
+        /* PgD4S: the Max-style presentation layout and the per-object attributes ("#X attr"), as
+        canvas_saveto writes them (it does for subpatches); without them a state saved by the host
+        and loaded back lost the knobs' names, the number boxes' looks... */
         canvas_presentation_save(cnv, b, 0);
+        canvas_attr_save(cnv, b, 0);
         /* unless everything is the default (as in ordinary subpatches)
         print out a "coords" message to set up the coordinate systems */
         if (cnv->gl_isgraph || cnv->gl_x1 || cnv->gl_y1 || cnv->gl_x2 != 1.0f || cnv->gl_y2 != 1.0f || cnv->gl_pixwidth || cnv->gl_pixheight) {
