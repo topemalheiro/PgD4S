@@ -271,7 +271,9 @@ public:
         auto const b = getLocalBounds().toFloat();
 
         auto fillColour = getValue<bool>(transparent) ? nvgRGBA(0, 0, 0, 0) : bgCol;
-        nvgDrawRoundedRect(nvg, b.getX(), b.getY(), b.getWidth(), b.getHeight(), fillColour, object->isSelected() ? nvgColour(PlugDataColours::objectSelectedOutlineColour) : nvgColour(PlugDataColours::objectOutlineColour), Corners::objectCornerRadius);
+        // PgD4S: an oval button (Live's round live.button, converted) is round outside too, lit or not
+        auto const boxRadius = getValue<bool>(oval) ? std::min(b.getWidth(), b.getHeight()) * 0.5f : Corners::objectCornerRadius;
+        nvgDrawRoundedRect(nvg, b.getX(), b.getY(), b.getWidth(), b.getHeight(), fillColour, object->isSelected() ? nvgColour(PlugDataColours::objectSelectedOutlineColour) : nvgColour(PlugDataColours::objectOutlineColour), boxRadius);
 
         auto radius = getValue<bool>(oval) ? getWidth() : Corners::objectCornerRadius;
         if (!getValue<bool>(transparent)) {
