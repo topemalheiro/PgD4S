@@ -288,7 +288,7 @@ public:
             nvgBeginPath(nvg);
             nvgArc(nvg, bounds.getCentreX(), bounds.getCentreY(), arcRadius, startAngle, endAngle, NVG_HOLE);
             nvgStrokeWidth(nvg, arcWidth * lineThickness);
-            nvgStrokeColor(nvg, nvgColour(arcColour));
+            nvgStrokeColor(nvg, nvgColour(getShownArcColour()));
             nvgStroke(nvg);
 
             nvgBeginPath(nvg);
@@ -297,7 +297,7 @@ public:
             } else {
                 nvgArc(nvg, bounds.getCentreX(), bounds.getCentreY(), arcRadius, angle, centre, NVG_HOLE);
             }
-            nvgStrokeColor(nvg, nvgColour(fgColour));
+            nvgStrokeColor(nvg, nvgColour(getShownForeground()));
             nvgStrokeWidth(nvg, arcWidth * lineThickness);
             nvgStroke(nvg);
         }
@@ -310,7 +310,7 @@ public:
         nvgMoveTo(nvg, bounds.getCentreX(), bounds.getCentreY()); // Adjust parameters as needed
         nvgLineTo(nvg, wiperX, wiperY);                           // Adjust parameters as needed
         nvgStrokeWidth(nvg, lineThickness);
-        nvgStrokeColor(nvg, nvgColour(fgColour));
+        nvgStrokeColor(nvg, nvgColour(getShownForeground()));
         nvgLineCap(nvg, NVG_ROUND);
         nvgStroke(nvg);
 
@@ -338,7 +338,7 @@ public:
         if (needleStyle != PlainNeedle) {
             nvgBeginPath(nvg);
             nvgCircle(nvg, centre.x, centre.y, thickness * 0.55f);
-            nvgFillColor(nvg, nvgColour(arcColour));
+            nvgFillColor(nvg, nvgColour(getShownArcColour()));
             nvgFill(nvg);
         }
 
@@ -346,7 +346,7 @@ public:
         nvgMoveTo(nvg, base.x, base.y);
         nvgLineTo(nvg, tip.x, tip.y);
         nvgStrokeWidth(nvg, thickness);
-        nvgStrokeColor(nvg, nvgColour(fgColour));
+        nvgStrokeColor(nvg, nvgColour(getShownForeground()));
         nvgLineCap(nvg, NVG_ROUND);
         nvgStroke(nvg);
     }
@@ -412,6 +412,19 @@ public:
     void setReadOnly(bool const newReadOnly)
     {
         readOnly = newReadOnly;
+        repaint();
+    }
+
+    // PgD4S: a read-only knob is drawn greyed out, as Live's disabled dial (Max's live.dial "active 0",
+    // converted to "readonly 1")
+    Colour getShownForeground() const
+    {
+        return readOnly ? fgColour.withSaturation(0.0f).withMultipliedBrightness(0.8f).withMultipliedAlpha(0.55f) : fgColour;
+    }
+
+    Colour getShownArcColour() const
+    {
+        return readOnly ? arcColour.withMultipliedAlpha(0.6f) : arcColour;
     }
 };
 
@@ -877,8 +890,13 @@ public:
             break;
         }
         case hash("readonly"): {
-            if (atoms.size() > 0 && atoms[0].isFloat())
-                readOnly = atoms[0].getFloat();
+            // a runtime switch (a converted live.dial's "active"): no undo step, no modified patch
+            if (atoms.size() > 0 && atoms[0].isFloat()) {
+                setParameterExcludingListener(readOnly, atoms[0].getFloat() != 0.0f);
+                knob.setReadOnly(::getValue<bool>(readOnly));
+                updateLabel();
+                repaint();
+            }
             break;
         }
         case hash("number"): {
@@ -1098,6 +1116,8 @@ public:
         } else if (std::abs(labelColour.getBrightness() - PlugDataColours::canvasBackgroundColour.getBrightness()) < 0.3f) {
             labelColour = PlugDataColours::canvasBackgroundColour.contrasting();
         }
+        if (::getValue<bool>(readOnly)) // greyed out with the knob
+            labelColour = labelColour.withMultipliedAlpha(0.5f);
 
         // PgD4S: the parameter name, centred above the knob (live.dial's showname)
         if (auto* nameLabel = labels[1]) {
@@ -1407,6 +1427,8 @@ public:
             if (auto knb = ptr.get<t_fake_knob>())
                 knb->x_readonly = ::getValue<bool>(readOnly);
             knob.setReadOnly(::getValue<bool>(readOnly));
+            updateLabel();
+            repaint();
         } else if (value.refersToSameSourceAs(jumpOnClick)) {
             if (auto knb = ptr.get<t_fake_knob>())
                 knb->x_jump = ::getValue<bool>(jumpOnClick);

@@ -30,6 +30,7 @@ extern "C" {
 
 #include "Pd/Interface.h"
 #include "Setup.h"
+#include "Components/PresentationWindow.h"
 
 EXTERN int sys_load_lib(t_canvas* canvas, char const* classname);
 
@@ -363,6 +364,13 @@ void Instance::initialisePd(String& pdlua_version)
 
                 MessageManager::callAsync([inst = juce::WeakReference(inst), patchToOpen = pd::WeakReference(glist, inst), patchFile] {
                     if (auto* pd = static_cast<PluginProcessor*>(inst.get())) {
+                        // PgD4S: a subpatch marked to open in presentation (Max's openinpresentation) opens
+                        // as its own window showing its presentation, as [pcontrol] opens it (from a face too)
+                        if (auto* canvas = patchToOpen.getRaw<t_glist>(); canvas && canvas->gl_presentation_open) {
+                            PresentationWindow::open(pd, canvas);
+                            return;
+                        }
+
                         PluginEditor* activeEditor = nullptr;
                         for (auto* editor : pd->getEditors()) {
                             if (editor->isActiveWindow()) {
@@ -395,6 +403,7 @@ void Instance::initialisePd(String& pdlua_version)
             } else {
                 MessageManager::callAsync([inst = juce::WeakReference(inst), glist] {
                     if (auto const* pd = static_cast<PluginProcessor*>(inst.get())) {
+                        PresentationWindow::close(glist); // PgD4S: its presentation window, if open
                         for (auto* editor : pd->getEditors()) {
                             for (auto* canvas : editor->getCanvases()) {
                                 auto canvasPtr = canvas->patch.getPointer();

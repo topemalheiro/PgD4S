@@ -541,6 +541,14 @@ void ObjectBase::openSubpatch()
     if (!glist)
         return;
 
+    // PgD4S: a subpatch marked to open in presentation (Max's openinpresentation) opens as its own window
+    // showing its presentation, as through [pcontrol]. While the patch is being edited, it opens as a tab
+    // instead, so it can be edited.
+    if (glist->gl_presentation_open && (getValue<bool>(cnv->locked) || getValue<bool>(cnv->presentationMode) || cnv->editor->isInPluginMode())) {
+        PcontrolObject::openLater(pd, const_cast<t_glist*>(glist));
+        return;
+    }
+
     auto const abstraction = canvas_isabstraction(glist);
     File path;
 
