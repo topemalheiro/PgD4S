@@ -1256,7 +1256,8 @@ void PluginProcessor::getStateInformation(MemoryBlock& destData)
     auto const patchesTree = new XmlElement("Patches");
 
     // Save path and content for patch
-    lockAudioThread();
+    // PgD4S: no lock around all of it: each patch's content is collected under Pd's lock on its own,
+    // and the text and the XML are made without it (Patch::getCanvasContent)
     for (auto const& patch : patches) {
 
         auto content = patch->getCanvasContent();
@@ -1279,7 +1280,6 @@ void PluginProcessor::getStateInformation(MemoryBlock& destData)
 
         patchesTree->addChildElement(patchTree);
     }
-    unlockAudioThread();
 
     ostream.writeInt(getLatencySamples() - Instance::getBlockSize());
     ostream.writeInt(oversampling);

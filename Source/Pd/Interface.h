@@ -788,6 +788,15 @@ struct Interface {
 
     static void getCanvasContent(t_canvas* cnv, char** buf, int* bufsize)
     {
+        t_binbuf* b = getCanvasBinbuf(cnv);
+        binbuf_gettext(b, buf, bufsize);
+        binbuf_free(b);
+    }
+
+    /* the canvas's content as Pd would save it, as atoms: the part that needs Pd's lock. Turning it
+       into text (binbuf_gettext) doesn't, as symbols are never freed; the caller frees the binbuf. */
+    static t_binbuf* getCanvasBinbuf(t_canvas* cnv)
+    {
         t_binbuf* b = binbuf_new();
 
         t_linetraverser t;
@@ -821,10 +830,13 @@ struct Interface {
         for (t_gobj* y = cnv->gl_list; y; y = y->g_next)
             gobj_save(y, b);
 
+        // PgD4S: the objects' indices looked up, not counted out for each connection
+        t_canvasindex index;
+        canvasindex_build(&index, cnv);
         linetraverser_start(&t, cnv);
         while ((oc = linetraverser_next_nosize(&t))) {
-            int const srcno = canvas_getindex(cnv, &t.tr_ob->ob_g);
-            int const sinkno = canvas_getindex(cnv, &t.tr_ob2->ob_g);
+            int const srcno = canvasindex_get(&index, &t.tr_ob->ob_g);
+            int const sinkno = canvasindex_get(&index, &t.tr_ob2->ob_g);
             if (t.outconnect_path_info == gensym("empty")) {
                 binbuf_addv(b, "ssiiii;", gensym("#X"), gensym("connect"),
                     srcno, t.tr_outno, sinkno, t.tr_inno);
@@ -833,6 +845,8 @@ struct Interface {
                     srcno, t.tr_outno, sinkno, t.tr_inno, t.outconnect_path_info);
             }
         }
+        canvasindex_free(&index);
+
         /* PgD4S: the Max-style presentation layout and the per-object attributes ("#X attr"), as
         canvas_saveto writes them (it does for subpatches); without them a state saved by the host
         and loaded back lost the knobs' names, the number boxes' looks... */
@@ -860,8 +874,7 @@ struct Interface {
                     static_cast<t_float>(cnv->gl_isgraph));
         }
 
-        binbuf_gettext(b, buf, bufsize);
-        binbuf_free(b);
+        return b;
     }
 
     static int numOutlets(t_object const* x)

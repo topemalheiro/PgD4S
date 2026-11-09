@@ -726,14 +726,20 @@ void Patch::setCurrentFile(URL const& newURL)
 
 String Patch::getCanvasContent() const
 {
-    char* buf;
-    int bufsize;
-
+    // PgD4S: Pd's lock (the audio thread's) only while the content is collected as atoms; making the
+    // text of it, the slow part, happens after letting go. Saving a session with PgD4S stalled the
+    // audio for a cycle or more (one click per save), as did autosaving and duplicating a device.
+    t_binbuf* binbuf = nullptr;
     if (auto patch = ptr.get<t_canvas>()) {
-        pd::Interface::getCanvasContent(patch.get(), &buf, &bufsize);
+        binbuf = pd::Interface::getCanvasBinbuf(patch.get());
     } else {
         return { };
     }
+
+    char* buf;
+    int bufsize;
+    binbuf_gettext(binbuf, &buf, &bufsize);
+    binbuf_free(binbuf);
 
     auto content = String::fromUTF8(buf, static_cast<size_t>(bufsize));
 
