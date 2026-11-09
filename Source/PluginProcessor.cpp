@@ -1246,10 +1246,17 @@ void PluginProcessor::getStateInformation(MemoryBlock& destData)
 {
     setThis();
 
+    // PgD4S: the patch list is copied under Pd's lock (loading a state or opening and closing tabs
+    // changes it), and saved from the copy without it
+    SmallArray<pd::Patch::Ptr, 16> patchesToSave;
+    lockAudioThread();
+    patchesToSave = patches;
+    unlockAudioThread();
+
     // Store pure-data and parameter state
     MemoryOutputStream ostream(destData, false);
 
-    ostream.writeInt(patches.size());
+    ostream.writeInt(patchesToSave.size());
 
     auto const patchesDir = ProjectInfo::appDataDir.getChildFile("Patches");
 
@@ -1258,7 +1265,7 @@ void PluginProcessor::getStateInformation(MemoryBlock& destData)
     // Save path and content for patch
     // PgD4S: no lock around all of it: each patch's content is collected under Pd's lock on its own,
     // and the text and the XML are made without it (Patch::getCanvasContent)
-    for (auto const& patch : patches) {
+    for (auto const& patch : patchesToSave) {
 
         auto content = patch->getCanvasContent();
         auto patchFile = patch->getCurrentFile().getFullPathName();

@@ -25,6 +25,7 @@ class NumberObject final : public ObjectBase {
     Value decimals = SynchronousValue();
     Value unitText = SynchronousValue();
     Value alignment = SynchronousValue();
+    Value showText = SynchronousValue(); // PgD4S: "#X attr N hidetext 1" (Max's text colour with alpha 0)
 
     float preFocusValue;
     float value = 0.0f;
@@ -112,6 +113,7 @@ public:
         objectParameters.addParamBool("Initialise", cGeneral, &iemHelper.initialise, { "No", "Yes" }, 0);
         objectParameters.addParamBool("Arrow", cAppearance, &showArrow, { "No", "Yes" }, 1);
         objectParameters.addParamBool("Background", cAppearance, &fillBox, { "No", "Yes" }, 1);
+        objectParameters.addParamBool("Show number", cAppearance, &showText, { "No", "Yes" }, 1);
         objectParameters.addParamCombo("Decimals", cAppearance, &decimals, { "Auto", "0", "1", "2", "3", "4" }, 1);
         objectParameters.addParamString("Unit", cAppearance, &unitText, "");
         objectParameters.addParamCombo("Alignment", cAppearance, &alignment, { "Left", "Centred", "Right" }, 1);
@@ -130,6 +132,7 @@ public:
         setParameterExcludingListener(decimals, hasAttribute("decimals") ? std::clamp(getAttribute("decimals").getIntValue(), 0, 4) + 2 : 1);
         setParameterExcludingListener(unitText, getAttribute("unit"));
         setParameterExcludingListener(alignment, std::max(1, alignNames.indexOf(getAttribute("align")) + 1));
+        setParameterExcludingListener(showText, getAttribute("hidetext", "0").getIntValue() == 0);
         updateDisplayFormat();
     }
 
@@ -375,6 +378,9 @@ public:
         } else if (value.refersToSameSourceAs(unitText)) {
             setAttribute("unit", unitText.toString());
             updateDisplayFormat();
+        } else if (value.refersToSameSourceAs(showText)) {
+            setAttribute("hidetext", getValue<bool>(showText) ? "" : "1");
+            repaint();
         } else if (value.refersToSameSourceAs(alignment)) {
             auto const align = getValue<int>(alignment);
             setAttribute("align", align > 1 ? alignNames[align - 1] : "");
@@ -451,8 +457,12 @@ public:
             nvgDrawRoundedRect(nvg, b.getX(), b.getY(), b.getWidth(), b.getHeight(), nvgRGBA(0, 0, 0, 0), nvgColour(selected ? PlugDataColours::objectSelectedOutlineColour : PlugDataColours::objectOutlineColour.withAlpha(0.5f)), Corners::objectCornerRadius);
         }
 
+        // PgD4S: hidden digits show only while typing a number
+        bool const drawText = getValue<bool>(showText) || input.isBeingEdited();
+
         if (!getValue<bool>(showArrow)) {
-            input.render(nvg, cnv->editor->getNanoLLGC());
+            if (drawText)
+                input.render(nvg, cnv->editor->getNanoLLGC());
             return;
         }
 
@@ -473,7 +483,8 @@ public:
         nvgFillColor(nvg, flagCol);
         nvgFill(nvg);
 
-        input.render(nvg, cnv->editor->getNanoLLGC());
+        if (drawText)
+            input.render(nvg, cnv->editor->getNanoLLGC());
     }
 
     std::unique_ptr<ComponentBoundsConstrainer> createConstrainer() override

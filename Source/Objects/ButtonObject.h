@@ -17,6 +17,16 @@ class ButtonObject final : public ObjectBase {
     Value readOnly = SynchronousValue();
     Value oval = SynchronousValue();
 
+    // PgD4S: a button with its own text (Max's live.text), stored as attributes ("#X attr"), as ELSE's
+    // button has no arguments for them
+    Value text = SynchronousValue();
+    Value textOn = SynchronousValue();
+    Value textColour = SynchronousValue();
+    Value textOnColour = SynchronousValue();
+    Value fontSize = SynchronousValue();
+    Value textAlign = SynchronousValue();
+    std::optional<Colour> setTextColour, setTextOnColour;
+
     NVGcolor fgCol;
     NVGcolor bgCol;
 
@@ -40,7 +50,77 @@ public:
         objectParameters.addParamBool("Oval", cAppearance, &oval, { "No", "Yes" });
         objectParameters.addParamBool("Read Only", cGeneral, &readOnly, { "No", "Yes" });
 
+        objectParameters.addParamString("Text", cLabel, &text, "");
+        objectParameters.addParamString("Text when on", cLabel, &textOn, "");
+        objectParameters.addParamColour("Text colour", cLabel, &textColour, PlugDataColour::canvasTextColourId);
+        objectParameters.addParamColour("Text colour when on", cLabel, &textOnColour, PlugDataColour::canvasTextColourId);
+        objectParameters.addParamInt("Font size", cLabel, &fontSize, 10, true, 4);
+        objectParameters.addParamCombo("Alignment", cLabel, &textAlign, { "Left", "Centred", "Right" }, 2);
+
         updateColours();
+    }
+
+    static inline StringArray const alignNames { "left", "center", "right" };
+
+    static std::optional<Colour> parseColour(String const& hex)
+    {
+        if (hex.isEmpty())
+            return std::nullopt;
+        return Colour::fromString(hex.startsWith("#") ? "ff" + hex.substring(1) : hex);
+    }
+
+    static String toHex(Colour const colour)
+    {
+        return "#" + colour.toDisplayString(false).toLowerCase();
+    }
+
+    // PgD4S: set without the property listener, so reading never writes attributes back
+    void readAttributes()
+    {
+        setParameterExcludingListener(text, getAttribute("text"));
+        setParameterExcludingListener(textOn, getAttribute("texton"));
+        setTextColour = parseColour(getAttribute("textcolor"));
+        setTextOnColour = parseColour(getAttribute("textoncolor"));
+        setParameterExcludingListener(textColour, getShownTextColour(false).toString());
+        setParameterExcludingListener(textOnColour, getShownTextColour(true).toString());
+        setParameterExcludingListener(fontSize, std::max(getAttribute("fontsize", "10").getIntValue(), 4));
+        setParameterExcludingListener(textAlign, std::max(1, alignNames.indexOf(getAttribute("align", "center")) + 1));
+        repaint();
+    }
+
+    bool hasText() const
+    {
+        return text.toString().isNotEmpty() || textOn.toString().isNotEmpty();
+    }
+
+    // the colour set for each state; unset, a colour that reads on the button (the "on" text takes the
+    // "off" colour when only that one is set)
+    Colour getShownTextColour(bool const on) const
+    {
+        if (on && setTextOnColour)
+            return *setTextOnColour;
+        if (setTextColour)
+            return *setTextColour;
+        if (getValue<bool>(transparent))
+            return PlugDataColours::canvasTextColour;
+        return Colour::fromString((on ? primaryColour : secondaryColour).toString()).contrasting();
+    }
+
+    void renderText(NVGcontext* nvg, Rectangle<float> const b) const
+    {
+        auto const label = state && textOn.toString().isNotEmpty() ? textOn.toString() : text.toString();
+        if (label.isEmpty())
+            return;
+
+        auto const align = getValue<int>(textAlign);
+        NVGScopedState scopedState(nvg);
+        nvgIntersectScissor(nvg, b.getX(), b.getY(), b.getWidth(), b.getHeight());
+        nvgFontFace(nvg, "Inter-Regular");
+        nvgFontSize(nvg, static_cast<float>(std::max(getValue<int>(fontSize), 4)));
+        nvgTextAlign(nvg, NVG_ALIGN_MIDDLE | (align == 1 ? NVG_ALIGN_LEFT : align == 3 ? NVG_ALIGN_RIGHT : NVG_ALIGN_CENTER));
+        nvgFillColor(nvg, nvgColour(getShownTextColour(state)));
+        auto const x = align == 1 ? b.getX() + 4.0f : align == 3 ? b.getRight() - 4.0f : b.getCentreX();
+        nvgText(nvg, x, b.getCentreY(), label.toRawUTF8(), nullptr);
     }
 
     void onConstrainerCreate() override
@@ -65,6 +145,9 @@ public:
             sizeProperty = VarArray(button->x_w, button->x_h);
             readOnly = button->x_readonly;
             oval = button->x_oval;
+            // PgD4S: lit as Pd has it (set by the patch before this view opened, a loadbang)
+            if (button->x_mode != 2)
+                state = button->x_state != 0;
             if (button->x_mode == 0) {
                 mode = Latch;
             } else if (button->x_mode == 1) {
@@ -77,6 +160,7 @@ public:
         }
 
         updateColours();
+        readAttributes();
     }
 
     void toggleObject(Point<int> position) override
@@ -107,6 +191,7 @@ public:
                     });
             } else if (mode != Click) {
                 if (auto button = ptr.get<t_fake_button>()) {
+                    button->x_state = state;
                     outlet_float(button->x_obj.ob_outlet, state);
                 }
             }
@@ -120,6 +205,7 @@ public:
             if (mode == Latch) {
                 state = false;
                 if (auto button = ptr.get<t_fake_button>()) {
+                    button->x_state = 0;
                     outlet_float(button->x_obj.ob_outlet, 0);
                 }
             }
@@ -221,6 +307,7 @@ public:
                 });
         } else {
             if (auto button = ptr.get<t_fake_button>()) {
+                button->x_state = state;
                 outlet_float(button->x_obj.ob_outlet, state);
                 if (button->x_snd->s_thing && !button->x_edit && button->x_snd != gensym("empty") && button->x_snd != pd->generateSymbol(""))
                     pd_float(button->x_snd->s_thing, state);
@@ -257,6 +344,7 @@ public:
         } else if (mode == Latch) {
             state = false;
             if (auto button = ptr.get<t_fake_button>()) {
+                button->x_state = 0;
                 outlet_float(button->x_obj.ob_outlet, 0);
                 if (button->x_snd->s_thing && !button->x_edit && button->x_snd != gensym("empty") && button->x_snd != pd->generateSymbol(""))
                     pd_float(button->x_snd->s_thing, 0);
@@ -276,6 +364,17 @@ public:
         nvgDrawRoundedRect(nvg, b.getX(), b.getY(), b.getWidth(), b.getHeight(), fillColour, object->isSelected() ? nvgColour(PlugDataColours::objectSelectedOutlineColour) : nvgColour(PlugDataColours::objectOutlineColour), boxRadius);
 
         auto radius = getValue<bool>(oval) ? getWidth() : Corners::objectCornerRadius;
+
+        // PgD4S: a text button (live.text) is lit edge to edge, its text over it
+        if (hasText()) {
+            if (state && !getValue<bool>(transparent)) {
+                auto const lit = b.reduced(1);
+                nvgDrawRoundedRect(nvg, lit.getX(), lit.getY(), lit.getWidth(), lit.getHeight(), fgCol, fgCol, std::max(boxRadius - 1.0f, 0.0f));
+            }
+            renderText(nvg, b.reduced(1));
+            return;
+        }
+
         if (!getValue<bool>(transparent)) {
             auto const guiBounds = b.reduced(1);
             auto const outerBounds = guiBounds.reduced(5);
@@ -340,6 +439,33 @@ public:
             }
             repaint();
         }
+        if (value.refersToSameSourceAs(readOnly)) {
+            if (auto button = ptr.get<t_fake_button>()) {
+                button->x_readonly = getValue<bool>(readOnly);
+            }
+        }
+        if (value.refersToSameSourceAs(text)) {
+            setAttribute("text", text.toString());
+            repaint();
+        } else if (value.refersToSameSourceAs(textOn)) {
+            setAttribute("texton", textOn.toString());
+            repaint();
+        } else if (value.refersToSameSourceAs(textColour)) {
+            setTextColour = Colour::fromString(textColour.toString());
+            setAttribute("textcolor", toHex(*setTextColour));
+            repaint();
+        } else if (value.refersToSameSourceAs(textOnColour)) {
+            setTextOnColour = Colour::fromString(textOnColour.toString());
+            setAttribute("textoncolor", toHex(*setTextOnColour));
+            repaint();
+        } else if (value.refersToSameSourceAs(fontSize)) {
+            setAttribute("fontsize", String(std::max(getValue<int>(fontSize), 4)));
+            repaint();
+        } else if (value.refersToSameSourceAs(textAlign)) {
+            auto const align = getValue<int>(textAlign);
+            setAttribute("align", align == 2 ? String() : alignNames[std::clamp(align - 1, 0, 2)]);
+            repaint();
+        }
     }
 
     void receiveObjectMessage(hash32 const symbol, SmallArray<pd::Atom> const& atoms) override
@@ -384,6 +510,15 @@ public:
                 state = !approximatelyEqual(atoms[0].getFloat(), 0.0f);
             }
             repaint();
+            break;
+        }
+        case hash("set"): {
+            // PgD4S: lit or not without output (ELSE's button_set), e.g. Snake's selectors turning the
+            // others off
+            if (mode != Bang && atoms.size() && atoms[0].isFloat()) {
+                state = !approximatelyEqual(atoms[0].getFloat(), 0.0f);
+                repaint();
+            }
             break;
         }
         case hash("click"):

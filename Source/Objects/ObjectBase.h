@@ -242,6 +242,7 @@ public:
     bool hasAttribute(String const& key) const;
     String getAttribute(String const& key, String const& defaultValue = {}) const;
     void setAttribute(String const& key, String const& value); // an empty value removes it
+    void updateOtherViews(); // other views of the patch re-read this object (attributes aren't Pd messages)
 
 protected:
     // Set parameter without triggering valueChanged

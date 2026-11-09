@@ -219,8 +219,10 @@ String ObjectBase::getAttribute(String const& key, String const& defaultValue) c
         if (patch && canvas_attr_get(patch, obj.get(), pd->generateSymbol(key), &argc, &argv)) {
             StringArray words;
             for (int i = 0; i < argc; i++) {
-                if (argv[i].a_type == A_FLOAT)
-                    words.add(String(argv[i].a_w.w_float));
+                if (argv[i].a_type == A_FLOAT) {
+                    auto const f = argv[i].a_w.w_float;
+                    words.add(f == std::floor(f) && std::abs(f) < 1e9f ? String(static_cast<int64>(f)) : String(f));
+                }
                 else if (argv[i].a_type == A_SYMBOL)
                     words.add(String::fromUTF8(argv[i].a_w.w_symbol->s_name));
             }
@@ -250,6 +252,28 @@ void ObjectBase::setAttribute(String const& key, String const& value)
         canvas_attr_set(patch, obj.get(), pd->generateSymbol(key), atoms.size(), atoms.data());
         canvas_dirty(patch, 1);
     }
+    updateOtherViews();
+}
+
+// PgD4S: another view of this patch (Spite's device face, a second window) shows its own copy of the
+// object, which only re-reads its attributes when told
+void ObjectBase::updateOtherViews()
+{
+    MessageManager::callAsync([_this = SafePointer(this)] {
+        if (!_this)
+            return;
+        auto const* raw = _this->ptr.getRawUnchecked<void>();
+        for (auto* editor : _this->pd->getEditors()) {
+            for (auto* canvas : editor->getTabComponent().getVisibleCanvases()) {
+                if (canvas == _this->cnv)
+                    continue;
+                for (auto* other : canvas->objects) {
+                    if (other->gui && other->getPointer() == raw)
+                        other->gui->updateProperties();
+                }
+            }
+        }
+    });
 }
 
 ObjectBase::~ObjectBase()

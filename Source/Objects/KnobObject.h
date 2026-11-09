@@ -41,19 +41,25 @@ class Knob final : public Component
     float arcBegin = 3.927, arcEnd = 8.639;
     float interval = 0.0f;
 
+    // PgD4S: the tiny dial's triangle (Max's live.dial "triangle") marks the initial value; -1 while unknown
+    float initialPosition = -1.0f;
+    bool showTriangle : 1 = true;
+    bool triangleClicked : 1 = false;
+    Colour triangleColour = Colour(0xffd9d9d9);
+
 public:
-    // PgD4S: needle-only looks for Live's tiny dials: a plain needle, or PgD4S's own needles that lean
-    // left or right of the pivot
-    enum NeedleStyle {
+    // PgD4S: the look. Tiny is Live's tiny dial (live.dial appearance 1): a grey ring with its gap at the
+    // bottom right, a needle from the centre and a triangle at the initial value; Tiny (right) is mirrored.
+    enum Style {
         NormalKnob = 0,
-        PlainNeedle,
-        NeedleLeaningLeft,
-        NeedleLeaningRight
+        TinyLeft,
+        TinyRight
     };
-    int needleStyle = NormalKnob;
+    int style = NormalKnob;
 
     std::function<void()> onDragStart, onDragEnd;
     std::function<void()> onValueChange;
+    std::function<void()> onTriangleClick;
 
     Knob()
         : NVGComponent(this)
@@ -87,8 +93,17 @@ public:
 
     void mouseDown(MouseEvent const& e) override
     {
+        triangleClicked = false;
         if (!e.mods.isLeftButtonDown() || readOnly)
             return;
+
+        // PgD4S: a click on the tiny dial's triangle restores the initial value, as in Max
+        if (hitsTriangle(e.position)) {
+            triangleClicked = true;
+            if (onTriangleClick)
+                onTriangleClick();
+            return;
+        }
 
         loopCount = 0;
         float const normalized = (getValue() - minValue) / (maxValue - minValue);
@@ -123,7 +138,7 @@ public:
 
     void mouseDrag(MouseEvent const& e) override
     {
-        if (!e.mods.isLeftButtonDown() || readOnly)
+        if (!e.mods.isLeftButtonDown() || readOnly || triangleClicked)
             return;
 
         float const delta = e.getDistanceFromDragStartY() - e.getDistanceFromDragStartX();
@@ -231,6 +246,10 @@ public:
     {
         mouseDragSensitivity = 250;
         shiftIsDown = false;
+        if (triangleClicked) {
+            triangleClicked = false;
+            return;
+        }
         onDragEnd();
     }
 
@@ -275,8 +294,8 @@ public:
 
         startAngle = std::clamp<float>(startAngle, endAngle - MathConstants<float>::twoPi, endAngle + MathConstants<float>::twoPi);
 
-        if (needleStyle != NormalKnob) {
-            renderNeedle(nvg, angle);
+        if (style != NormalKnob) {
+            renderTiny(nvg, startAngle, endAngle, angle);
             return;
         }
 
@@ -317,43 +336,110 @@ public:
         drawTicks(nvg, bounds, startAngle, endAngle, lineThickness);
     }
 
-    // PgD4S: a needle and nothing else. The plain needle runs from the pivot to the rim; the leaning
-    // ones start beside the pivot (left or right of it, seen along the needle), so they cross the dial as
-    // a slanted stroke, with a small pivot dot in the arc colour.
-    void renderNeedle(NVGcontext* nvg, float const angle) const
+    // PgD4S: Live's tiny dial, measured from Max's: the ring's outer edge at 0.71 of the half-size and
+    // 0.18 of that thick, in the arc colour, cut where the needle crosses it; the needle as thick, from the
+    // centre to the ring's edge; no value arc. The knob turns its angular range 45 degrees (see
+    // KnobObject::updateRotaryParameters), so Live's 270 degrees leave the gap at the bottom right.
+    float getTinyRadius() const
     {
-        auto const bounds = getLocalBounds().toFloat().reduced(getWidth() * 0.1f);
-        auto const radius = bounds.getWidth() * 0.5f;
-        auto const centre = bounds.getCentre();
-        auto const thickness = std::max(radius * 0.2f, 2.0f);
-
-        auto const tip = centre + Point<float>(std::cos(angle), std::sin(angle)) * radius * 0.92f;
-        auto base = centre;
-        if (needleStyle != PlainNeedle) {
-            // perpendicular to the needle: -90 degrees is its left side, +90 its right
-            auto const side = angle + (needleStyle == NeedleLeaningLeft ? -1.0f : 1.0f) * MathConstants<float>::halfPi;
-            base = centre + Point<float>(std::cos(side), std::sin(side)) * radius * 0.38f;
-        }
-
-        if (needleStyle != PlainNeedle) {
-            nvgBeginPath(nvg);
-            nvgCircle(nvg, centre.x, centre.y, thickness * 0.55f);
-            nvgFillColor(nvg, nvgColour(getShownArcColour()));
-            nvgFill(nvg);
-        }
-
-        nvgBeginPath(nvg);
-        nvgMoveTo(nvg, base.x, base.y);
-        nvgLineTo(nvg, tip.x, tip.y);
-        nvgStrokeWidth(nvg, thickness);
-        nvgStrokeColor(nvg, nvgColour(getShownForeground()));
-        nvgLineCap(nvg, NVG_ROUND);
-        nvgStroke(nvg);
+        return std::min(getWidth(), getHeight()) * 0.5f * 0.71f;
     }
 
-    void setNeedleStyle(int const style)
+    void renderTiny(NVGcontext* nvg, float const startAngle, float const endAngle, float const angle) const
     {
-        needleStyle = style;
+        auto const centre = getLocalBounds().toFloat().getCentre();
+        auto const radius = getTinyRadius();
+        auto const thickness = std::max(radius * 0.18f, 1.2f);
+        auto const ringRadius = radius - thickness * 0.5f;
+
+        if (drawArc) {
+            auto const gap = (thickness * 0.5f + std::max(thickness * 0.45f, 0.6f)) / ringRadius;
+            nvgLineCap(nvg, NVG_BUTT);
+            nvgStrokeWidth(nvg, thickness);
+            nvgStrokeColor(nvg, nvgColour(getShownArcColour()));
+            auto const strokeArc = [&](float const from, float const to) {
+                if (to - from <= 0.001f)
+                    return;
+                nvgBeginPath(nvg);
+                nvgArc(nvg, centre.x, centre.y, ringRadius, from, to, NVG_HOLE); // clockwise
+                nvgStroke(nvg);
+            };
+            strokeArc(startAngle, std::min(angle - gap, endAngle));
+            strokeArc(std::max(angle + gap, startAngle), endAngle);
+        }
+
+        auto const tip = centre + Point<float>(std::cos(angle), std::sin(angle)) * (radius - thickness * 0.5f);
+        nvgBeginPath(nvg);
+        nvgMoveTo(nvg, centre.x, centre.y);
+        nvgLineTo(nvg, tip.x, tip.y);
+        nvgLineCap(nvg, NVG_ROUND);
+        nvgStrokeWidth(nvg, thickness);
+        nvgStrokeColor(nvg, nvgColour(getShownForeground()));
+        nvgStroke(nvg);
+
+        Point<float> apex, left, right;
+        if (getTrianglePoints(apex, left, right)) {
+            // tricolor at the initial value (Max's attribute); away from it, the ring's colour
+            auto colour = std::abs(value - initialPosition) < 0.0005f ? triangleColour : arcColour;
+            if (readOnly)
+                colour = colour.withMultipliedAlpha(0.55f);
+            nvgBeginPath(nvg);
+            nvgMoveTo(nvg, apex.x, apex.y);
+            nvgLineTo(nvg, left.x, left.y);
+            nvgLineTo(nvg, right.x, right.y);
+            nvgClosePath(nvg);
+            nvgFillColor(nvg, nvgColour(colour));
+            nvgFill(nvg);
+        }
+    }
+
+    // PgD4S: the triangle points at the initial value from just outside the ring: its right angle at the
+    // ring's edge, its long side outward, as in Max
+    bool getTrianglePoints(Point<float>& apex, Point<float>& left, Point<float>& right) const
+    {
+        if (style == NormalKnob || !showTriangle || initialPosition < 0.0f)
+            return false;
+
+        auto const centre = getLocalBounds().toFloat().getCentre();
+        auto const radius = getTinyRadius();
+        auto const angle = jmap<float>(initialPosition, arcBegin, arcEnd) - MathConstants<float>::halfPi;
+        Point<float> const outward(std::cos(angle), std::sin(angle));
+        Point<float> const across(-outward.y, outward.x);
+        apex = centre + outward * (radius * 1.08f);
+        auto const base = centre + outward * (radius * 1.38f);
+        left = base + across * (radius * 0.3f);
+        right = base - across * (radius * 0.3f);
+        return true;
+    }
+
+    bool hitsTriangle(Point<float> const position) const
+    {
+        Point<float> apex, left, right;
+        if (!getTrianglePoints(apex, left, right))
+            return false;
+
+        auto const centroid = (apex + left + right) / 3.0f;
+        auto const radius = getTinyRadius();
+        return position.getDistanceFrom(centroid) < std::max(radius * 0.34f, 3.5f)
+            && position.getDistanceFrom(getLocalBounds().toFloat().getCentre()) > radius * 0.9f;
+    }
+
+    void setStyle(int const newStyle)
+    {
+        style = std::clamp(newStyle, static_cast<int>(NormalKnob), static_cast<int>(TinyRight));
+        repaint();
+    }
+
+    void setInitialPosition(float const position)
+    {
+        initialPosition = position;
+        repaint();
+    }
+
+    void setTriangle(bool const show, Colour const colour)
+    {
+        showTriangle = show;
+        triangleColour = colour;
         repaint();
     }
 
@@ -503,6 +589,10 @@ public:
             stopEdition();
         };
 
+        knob.onTriangleClick = [this] {
+            resetToInitialValue();
+        };
+
         knob.addMouseListener(this, false);
         setWantsKeyboardFocus(true);
 
@@ -546,10 +636,21 @@ public:
         objectParameters.addParamBool("Square", cAppearance, &square, { "No", "Yes" }, 1);
         objectParameters.addParamBool("Show arc", cAppearance, &showArc, { "No", "Yes" }, 1);
         objectParameters.addParamBool("Transparent", cAppearance, &transparent, { "No", "Yes" }, 0);
-        objectParameters.addParamCombo("Needle", cAppearance, &needle, { "Knob", "Plain needle", "Needle leaning left", "Needle leaning right" }, 1);
+        objectParameters.addParamCombo("Style", cAppearance, &needle, { "Knob", "Tiny (left)", "Tiny (right)" }, 1);
     }
 
-    static inline StringArray const needleNames { "", "plain", "left", "right" };
+    // PgD4S: the "needle" attribute holds the style: tinyleft or tinyright, none for the knob. Patches from
+    // before have the needle styles these replaced: plain and left read as Tiny (left), right as Tiny (right).
+    static inline StringArray const styleNames { "", "tinyleft", "tinyright" };
+
+    static int styleFromAttribute(String const& name)
+    {
+        if (name == "tinyleft" || name == "plain" || name == "left")
+            return 2;
+        if (name == "tinyright" || name == "right")
+            return 3;
+        return 1;
+    }
 
     // PgD4S: the attributes behind the label and needle options
     void readAttributes()
@@ -562,8 +663,60 @@ public:
         setParameterExcludingListener(unitText, getAttribute("unit"));
         setParameterExcludingListener(decimals, hasAttribute("decimals") ? std::clamp(getAttribute("decimals").getIntValue(), 0, 4) + 2 : 1);
         setParameterExcludingListener(numberAlign, getAttribute("numberalign") == "center" ? 2 : 1);
-        setParameterExcludingListener(needle, std::max(1, needleNames.indexOf(getAttribute("needle")) + 1));
-        knob.setNeedleStyle(::getValue<int>(needle) - 1);
+        setParameterExcludingListener(needle, styleFromAttribute(getAttribute("needle")));
+        auto const triColour = getAttribute("tricolor");
+        knob.setTriangle(getAttribute("triangle", "1").getIntValue() != 0, triColour.isNotEmpty() ? convertTclColour(triColour) : Colour(0xffd9d9d9));
+        applyStyle();
+    }
+
+    // the drawing follows the style value, whichever way it was set
+    void applyStyle()
+    {
+        knob.setStyle(::getValue<int>(needle) - 1);
+        updateRotaryParameters();
+        updateInitialPosition();
+        repaint();
+    }
+
+    // PgD4S: where the initial value (arg 5, Max's parameter_initial) sits on the dial, as ELSE's
+    // knob_getpos works it out; the tiny dial's triangle marks it
+    void updateInitialPosition()
+    {
+        float position = -1.0f;
+        if (auto knb = ptr.get<t_fake_knob>()) {
+            double const lower = knb->x_lower, upper = knb->x_upper, load = knb->x_load;
+            double pos = -1.0;
+            if (knb->x_log == 1) {
+                if (lower != 0.0 && load / lower > 0.0 && upper / lower > 0.0 && upper != lower)
+                    pos = std::log(load / lower) / std::log(upper / lower);
+            } else if (upper != lower) {
+                pos = std::clamp((load - lower) / (upper - lower), 0.0, 1.0);
+                if (knb->x_exp > 0)
+                    pos = std::pow(pos, 1.0 / knb->x_exp);
+                else if (knb->x_exp < 0)
+                    pos = 1.0 - std::pow(1.0 - pos, 1.0 / -knb->x_exp);
+            }
+            if (pos >= 0.0 && knb->x_discrete && knb->x_steps > 1)
+                pos = std::rint(pos * (knb->x_steps - 1)) / (knb->x_steps - 1);
+            if (pos >= 0.0 && std::isfinite(pos))
+                position = static_cast<float>(std::clamp(pos, 0.0, 1.0));
+        }
+        knob.setInitialPosition(position);
+    }
+
+    // PgD4S: a double-click, or a click on the tiny dial's triangle, goes back to the initial value and
+    // outputs it (ELSE's "reload"), as Max's live.dial does; ELSE's "reset" would go to the arc start
+    void resetToInitialValue()
+    {
+        if (::getValue<bool>(readOnly))
+            return;
+
+        startEdition();
+        if (auto obj = ptr.get<t_pd>())
+            pd_typedmess(obj.get(), pd->generateSymbol("reload"), 0, nullptr);
+        knob.setValue(getValue());
+        stopEdition();
+        updateLabel();
     }
 
     String formatValue(float const v) const
@@ -601,7 +754,7 @@ public:
             return true;
         }
 
-        return false;
+        return knob.hitsTriangle(hitPoint);
     }
 
     bool isTransparent() override
@@ -805,9 +958,16 @@ public:
             if (atoms.size() >= 2) {
                 updateRange();
                 updateArcStart();
+                updateInitialPosition();
                 knob.setValue(getValue());
                 updateLabel();
             }
+            break;
+        }
+        case hash("load"): {
+            if (auto knb = ptr.get<t_fake_knob>())
+                setParameterExcludingListener(initialValue, knb->x_load);
+            updateInitialPosition();
             break;
         }
         case hash("angle"): {
@@ -881,6 +1041,7 @@ public:
                 initialValue = knb->x_load;
                 knob.setValue(getValue());
             }
+            updateInitialPosition();
             break;
         }
         case hash("square"): {
@@ -966,12 +1127,14 @@ public:
             if (atoms.size() >= 1) {
                 setParameterExcludingListener(exponential, atoms[0].getFloat());
             }
+            updateInitialPosition();
             break;
         }
         case hash("log"): {
             if (atoms.size() > 0 && atoms[0].isFloat()) {
                 setParameterExcludingListener(logMode, atoms[0].getFloat() + 1);
             }
+            updateInitialPosition();
             break;
         }
         case hash("ticks"): {
@@ -999,8 +1162,8 @@ public:
     {
         auto const b = getLocalBounds().toFloat();
 
-        // PgD4S: a needle style is just the needle, as Live's tiny dials
-        if (::getValue<int>(needle) > 1) {
+        // PgD4S: the tiny dial has no body, as Live's
+        if (knob.style != Knob::NormalKnob) {
             knob.render(nvg);
             return;
         }
@@ -1277,8 +1440,8 @@ public:
 
     void mouseDoubleClick(MouseEvent const& e) override
     {
-        sendMessage("reset");
-        knob.setValue(getValue());
+        if (locked)
+            resetToInitialValue();
     }
 
     void updateRotaryParameters()
@@ -1289,6 +1452,10 @@ public:
             startRad = degreesToRadians<float>(knb->x_arcstart_angle) + MathConstants<float>::twoPi;
             endRad = degreesToRadians<float>(knb->x_end_angle) + MathConstants<float>::twoPi;
             numTicks = knb->x_steps * knb->x_ticks;
+            // PgD4S: the tiny dial turns its range 45 degrees, its middle at the top left (right when mirrored)
+            auto const turn = knob.style == Knob::TinyLeft ? -MathConstants<float>::pi * 0.25f : knob.style == Knob::TinyRight ? MathConstants<float>::pi * 0.25f : 0.0f;
+            startRad += turn;
+            endRad += turn;
         } else {
             return;
         }
@@ -1330,6 +1497,7 @@ public:
             knob.setValue(getValue());
             updateRange();
             updateArcStart();
+            updateInitialPosition();
             updateLabel();
         } else if (value.refersToSameSourceAs(max)) {
             // set new min value and update knob
@@ -1339,11 +1507,13 @@ public:
             knob.setValue(getValue());
             updateRange();
             updateArcStart();
+            updateInitialPosition();
             updateLabel();
         } else if (value.refersToSameSourceAs(initialValue)) {
             updateArcStart();
             if (auto knb = ptr.get<t_fake_knob>())
                 knb->x_load = ::getValue<float>(initialValue);
+            updateInitialPosition();
         } else if (value.refersToSameSourceAs(circular)) {
             auto const mode = ::getValue<int>(circular);
             knob.setCircular(mode);
@@ -1384,6 +1554,7 @@ public:
                 if (knb->x_expmode == 2)
                     knb->x_exp = ::getValue<float>(exponential);
             }
+            updateInitialPosition();
         } else if (value.refersToSameSourceAs(logMode)) {
             if (auto knb = ptr.get<t_fake_knob>()) {
                 knb->x_expmode = ::getValue<float>(logMode) - 1;
@@ -1394,6 +1565,7 @@ public:
                     knb->x_exp = ::getValue<float>(exponential);
                 }
             }
+            updateInitialPosition();
         } else if (value.refersToSameSourceAs(sendSymbol)) {
             sendMessage("send", { pd::Atom(pd->generateSymbol(sendSymbol.toString())) });
             object->updateIolets();
@@ -1494,9 +1666,8 @@ public:
             setAttribute("numberalign", ::getValue<int>(numberAlign) == 2 ? "center" : "");
             updateLabel();
         } else if (value.refersToSameSourceAs(needle)) {
-            setAttribute("needle", needleNames[std::clamp(::getValue<int>(needle) - 1, 0, 3)]);
-            knob.setNeedleStyle(::getValue<int>(needle) - 1);
-            repaint();
+            setAttribute("needle", styleNames[std::clamp(::getValue<int>(needle) - 1, 0, 2)]);
+            applyStyle();
         }
     }
 
