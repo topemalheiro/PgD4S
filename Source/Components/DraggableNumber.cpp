@@ -152,6 +152,17 @@ void DraggableNumber::setPrecision(int const precision)
     maxPrecision = precision;
 }
 
+void DraggableNumber::setDisplayFormat(int const decimals, String const& unit, Justification const justification)
+{
+    if (fixedDecimals == decimals && suffix == unit && textJustification == justification)
+        return;
+
+    fixedDecimals = decimals;
+    suffix = unit;
+    textJustification = justification;
+    repaint();
+}
+
 // Toggle between showing ellipses or ">" if number is too large to fit
 void DraggableNumber::setShowEllipsesIfTooLong(bool const shouldShowEllipses)
 {
@@ -507,7 +518,25 @@ void DraggableNumber::render(NVGcontext* nvg, NVGGraphicsContext* llgc)
     };
 
     // Only display the decimal point if fractional exists, but make sure to show it as a user hovers over the fractional decimal places
-    auto const formatedNumber = isMouseOverOrDragging() && hoveredDecimal > 0 ? numberText : removeDecimalNumString(numberText);
+    auto formatedNumber = isMouseOverOrDragging() && hoveredDecimal > 0 ? numberText : removeDecimalNumString(numberText);
+
+    // PgD4S: a fixed number of decimals, a unit after the number, and alignment (live.numbox)
+    if (fixedDecimals >= 0 || suffix.isNotEmpty() || textJustification != Justification::centredLeft) {
+        if (fixedDecimals >= 0 && numberText.containsOnly("-0123456789.e"))
+            formatedNumber = fixedDecimals == 0 ? String(roundToInt(numberText.getDoubleValue())) : String(numberText.getDoubleValue(), fixedDecimals);
+        if (suffix.isNotEmpty())
+            formatedNumber << " " << suffix;
+
+        auto const width = CachedFontStringWidth::get()->calculateSingleLineWidth(font, formatedNumber);
+        auto x = textArea.getX();
+        if (textJustification.testFlags(Justification::horizontallyCentred))
+            x = textArea.getCentreX() - width / 2.0;
+        else if (textJustification.testFlags(Justification::right))
+            x = textArea.getRight() - width;
+
+        nvgText(nvg, x, textArea.getCentreY(), formatedNumber.toRawUTF8(), nullptr);
+        return;
+    }
 
     nvgText(nvg, textArea.getX(), textArea.getCentreY(), formatedNumber.toRawUTF8(), nullptr);
 

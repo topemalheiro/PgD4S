@@ -159,7 +159,7 @@ void Object::valueChanged(Value& v)
         // else it was a lock/unlock/presentation mode action
         // Hide certain objects in GOP; with a presentation layout, move to the presentation position
         updateBounds();
-        setVisible(!((cnv->isGraph || cnv->presentationMode == var(true)) && gui && gui->hideInGraph()) && !isHiddenByPresentation());
+        updateVisibility();
     } else if (v.refersToSameSourceAs(cnv->locked) || v.refersToSameSourceAs(cnv->commandLocked)) {
         if (gui) {
             gui->lock(cnv->isGraph || locked == var(true) || commandLocked == var(true));
@@ -389,6 +389,11 @@ void Object::applyPresentationBounds()
     });
 }
 
+void Object::updateVisibility()
+{
+    setVisible(!((cnv->isGraph || cnv->presentationMode == var(true)) && gui && gui->hideInGraph()) && !isHiddenByPresentation());
+}
+
 bool Object::isHiddenByPresentation() const
 {
     // An object still being typed has no Pd object yet: it stays visible (it joins the layout once made)
@@ -593,7 +598,7 @@ void Object::moved()
 
 void Object::resized()
 {
-    setVisible(!((cnv->isGraph || cnv->presentationMode == var(true)) && gui && gui->hideInGraph()) && !isHiddenByPresentation());
+    updateVisibility();
 
     if (gui) {
         gui->setBounds(getLocalBounds().reduced(margin));
@@ -1388,6 +1393,10 @@ void Object::renderIolets(NVGcontext* nvg)
 
 void Object::renderLabel(NVGcontext* nvg)
 {
+    // PgD4S: an object presentation mode hides takes its labels with it
+    if (!isVisible())
+        return;
+
     if (gui) {
         for (auto* label : gui->labels) {
             NVGScopedState scopedState(nvg);

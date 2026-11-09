@@ -81,6 +81,8 @@ void canvas_click(t_canvas* x, t_floatarg xpos, t_floatarg ypos, t_floatarg shif
 #include "OpenFileObject.h"
 #include "PdTildeObject.h"
 #include "PopMenu.h"
+#include "SpiteTabObject.h"
+#include "SpiteWindowObjects.h"
 #include "LuaObject.h"
 #include "DropzoneObject.h"
 #include "GemWindowObject.h"
@@ -173,10 +175,15 @@ ObjectBase::ObjectBase(pd::WeakReference obj, Object* parent)
         _this->object->addComponentListener(&_this->objectSizeListener);
         _this->updateLabel();
 
-        auto const objectBounds = _this->object->getObjectBounds();
-        _this->positionParameter = VarArray { var(objectBounds.getX()), var(objectBounds.getY()) };
+        _this->updatePositionParameters();
         _this->objectParameters.addParamPosition(&_this->positionParameter);
         _this->positionParameter.addListener(&_this->objectSizeListener);
+
+        // PgD4S: whether the object is in the presentation, and where
+        _this->objectParameters.addParamBool("In presentation", cDimensions, &_this->inPresentationParameter, { "No", "Yes" }, 0);
+        _this->objectParameters.addParamRangeInt("Presentation XY", cDimensions, &_this->presentationPositionParameter, VarArray { 0, 0 });
+        _this->inPresentationParameter.addListener(&_this->presentationListener);
+        _this->presentationPositionParameter.addListener(&_this->presentationListener);
     });
 
     setWantsKeyboardFocus(true);
@@ -192,6 +199,57 @@ ObjectBase::ObjectBase(pd::WeakReference obj, Object* parent)
             canvas_dirty(canvas, 1);
         }
     };
+}
+
+bool ObjectBase::hasAttribute(String const& key) const
+{
+    if (auto obj = ptr.get<t_gobj>()) {
+        if (auto* patch = cnv->patch.getRawPointer())
+            return canvas_attr_get(patch, obj.get(), pd->generateSymbol(key), nullptr, nullptr);
+    }
+    return false;
+}
+
+String ObjectBase::getAttribute(String const& key, String const& defaultValue) const
+{
+    if (auto obj = ptr.get<t_gobj>()) {
+        int argc = 0;
+        t_atom* argv = nullptr;
+        auto* patch = cnv->patch.getRawPointer();
+        if (patch && canvas_attr_get(patch, obj.get(), pd->generateSymbol(key), &argc, &argv)) {
+            StringArray words;
+            for (int i = 0; i < argc; i++) {
+                if (argv[i].a_type == A_FLOAT)
+                    words.add(String(argv[i].a_w.w_float));
+                else if (argv[i].a_type == A_SYMBOL)
+                    words.add(String::fromUTF8(argv[i].a_w.w_symbol->s_name));
+            }
+            return words.joinIntoString(" ");
+        }
+    }
+    return defaultValue;
+}
+
+void ObjectBase::setAttribute(String const& key, String const& value)
+{
+    if (auto obj = ptr.get<t_gobj>()) {
+        auto* patch = cnv->patch.getRawPointer();
+        if (!patch)
+            return;
+
+        SmallArray<t_atom> atoms;
+        for (auto const& word : StringArray::fromTokens(value.trim(), true)) {
+            atoms.emplace_back();
+            char* end = nullptr;
+            auto const number = std::strtod(word.toRawUTF8(), &end);
+            if (end && *end == '\0' && word.isNotEmpty())
+                SETFLOAT(&atoms.back(), static_cast<float>(number));
+            else
+                SETSYMBOL(&atoms.back(), pd->generateSymbol(word));
+        }
+        canvas_attr_set(patch, obj.get(), pd->generateSymbol(key), atoms.size(), atoms.data());
+        canvas_dirty(patch, 1);
+    }
 }
 
 ObjectBase::~ObjectBase()
@@ -216,11 +274,70 @@ void ObjectBase::initialise()
     }
 }
 
+// PgD4S: the patching position is the object's place in the patch even while the presentation layout
+// shows it elsewhere; the presentation position is its place in the presentation
+void ObjectBase::updatePositionParameters()
+{
+    auto const patchingPosition = getPdBounds().getPosition();
+    setParameterExcludingListener(positionParameter, VarArray { var(patchingPosition.getX()), var(patchingPosition.getY()) }, &objectSizeListener);
+
+    Point<int> presentationPosition;
+    bool const inPresentation = cnv->getPresentationPosition(ptr.getRawUnchecked<t_gobj>(), presentationPosition);
+    if (!inPresentation)
+        presentationPosition = patchingPosition;
+    setParameterExcludingListener(inPresentationParameter, var(inPresentation), &presentationListener);
+    setParameterExcludingListener(presentationPositionParameter, VarArray { var(presentationPosition.getX()), var(presentationPosition.getY()) }, &presentationListener);
+}
+
+void ObjectBase::PresentationListener::valueChanged(Value& v)
+{
+    auto* base = parent;
+    auto* cnv = base->cnv;
+
+    {
+        auto obj = base->ptr.get<t_gobj>();
+        auto* patch = cnv->patch.getRawPointer();
+        if (!obj || !patch)
+            return;
+
+        bool const inPresentation = canvas_presentation_get(patch, obj.get(), nullptr, nullptr);
+        auto const& arr = *base->presentationPositionParameter.getValue().getArray();
+        auto const x = static_cast<int>(arr[0]), y = static_cast<int>(arr[1]);
+
+        if (v.refersToSameSourceAs(base->inPresentationParameter)) {
+            bool const wanted = getValue<bool>(base->inPresentationParameter);
+            if (wanted != inPresentation) {
+                // Undoable: the apply snapshot keeps the object's presentation position
+                pd::Interface::undoApply(patch, obj.get());
+                if (wanted)
+                    canvas_presentation_set(patch, obj.get(), x, y);
+                else
+                    canvas_presentation_remove(patch, obj.get());
+                canvas_dirty(patch, 1);
+            }
+        } else if (v.refersToSameSourceAs(base->presentationPositionParameter)) {
+            if (inPresentation) {
+                SmallArray<pd::Interface::PresentationPosition> positions;
+                positions.add({ obj.get(), x, y });
+                cnv->patch.setPresentationPositions(positions);
+            } else {
+                pd::Interface::undoApply(patch, obj.get());
+                canvas_presentation_set(patch, obj.get(), x, y);
+                canvas_dirty(patch, 1);
+            }
+        }
+    }
+
+    cnv->updatePresentationLayout();
+    base->object->updateBounds();
+    base->object->updateVisibility();
+    base->updatePositionParameters();
+    cnv->synchroniseAllCanvases(); // other views of this patch, e.g. the device face Spite shows
+}
+
 void ObjectBase::objectMovedOrResized(bool const resized)
 {
-    auto const objectBounds = object->getObjectBounds();
-
-    setParameterExcludingListener(positionParameter, VarArray { var(objectBounds.getX()), var(objectBounds.getY()) }, &objectSizeListener);
+    updatePositionParameters();
 
     if (resized)
         updateSizeProperty();
@@ -562,13 +679,14 @@ ObjectBase* ObjectBase::createGui(pd::WeakReference ptr, Object* parent)
     }
 
     if (parent->cnv->pd->isLuaClass(name)) {
-        if (auto checked = ptr.get<t_gobj>()) {
-            if (checked.cast<t_pdlua>()->has_gui) {
-                return new LuaObject(ptr, parent);
-            } else {
-                return new LuaTextObject(ptr, parent);
-            }
-        }
+        // PgD4S: made after letting go of Pd's lock, as subpatches are below
+        int hasGui = -1;
+        if (auto checked = ptr.get<t_gobj>())
+            hasGui = checked.cast<t_pdlua>()->has_gui ? 1 : 0;
+        if (hasGui == 1)
+            return new LuaObject(ptr, parent);
+        if (hasGui == 0)
+            return new LuaTextObject(ptr, parent);
     }
     // check if object is a patcher object, or something else
     if (isNonPatchable && name != hash("scalar")) {
@@ -638,23 +756,26 @@ ObjectBase* ObjectBase::createGui(pd::WeakReference ptr, Object* parent)
         }
         case hash("canvas"):
         case hash("graph"): {
+            // PgD4S: find out what it is under Pd's lock, then make it after letting go: a
+            // graph-on-parent builds its whole subpatch's canvas, and the audio thread would wait
+            // for all of it (Spite measured 60-120 ms, an xrun that glitches every app's sound)
+            enum class Kind { Unknown, Array, Graph, Subpatch } kind = Kind::Unknown;
             if (auto checked = ptr.get<t_gobj>()) {
                 auto const* canvas = checked.cast<t_canvas>();
-                if (checked.cast<t_canvas>()->gl_list) {
-                    t_class* c = canvas->gl_list->g_pd;
-                    if (c && c->c_name && String::fromUTF8(c->c_name->s_name) == "array") {
-                        return new ArrayObject(ptr, parent);
-                    } else if (canvas->gl_isgraph) {
-                        return new GraphOnParent(ptr, parent);
-                    } else { // abstraction or subpatch
-                        return new SubpatchObject(ptr, parent);
-                    }
-                } else if (canvas->gl_isgraph) {
-                    return new GraphOnParent(ptr, parent);
-                } else {
-                    return new SubpatchObject(ptr, parent);
-                }
+                t_class* c = canvas->gl_list ? canvas->gl_list->g_pd : nullptr;
+                if (c && c->c_name && String::fromUTF8(c->c_name->s_name) == "array")
+                    kind = Kind::Array;
+                else if (canvas->gl_isgraph)
+                    kind = Kind::Graph;
+                else // abstraction or subpatch
+                    kind = Kind::Subpatch;
             }
+            if (kind == Kind::Array)
+                return new ArrayObject(ptr, parent);
+            if (kind == Kind::Graph)
+                return new GraphOnParent(ptr, parent);
+            if (kind == Kind::Subpatch)
+                return new SubpatchObject(ptr, parent);
         }
         case hash("array define"):
             return new ArrayDefineObject(ptr, parent);
@@ -688,6 +809,13 @@ ObjectBase* ObjectBase::createGui(pd::WeakReference ptr, Object* parent)
             return new KnobObject(ptr, parent);
         case hash("popmenu"):
             return new PopMenu(ptr, parent);
+        // PgD4S: objects for converted Max for Live devices (pure-data/src/x_spite.c)
+        case hash("spite.tab"):
+            return new SpiteTabObject(ptr, parent);
+        case hash("pcontrol"):
+            return new PcontrolObject(ptr, parent);
+        case hash("thispatcher"):
+            return new ThispatcherObject(ptr, parent);
 #if ENABLE_GEM
         case hash("gemcanvas"):
             return new GemCanvasObject(ptr, parent);

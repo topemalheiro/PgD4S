@@ -193,7 +193,7 @@ public:
         auto parameterIsInAllObjects = [&objectParameters](ObjectParameter& param, SmallArray<Value*>& values) {
             auto& [name1, type1, category1, value1, options1, defaultVal1, customComponent1, onInteractionFn1, clip1, min1, max1] = param;
 
-            if (objectParameters.size() > 1 && (name1 == "Size" || name1 == "Position" || name1 == "Height")) {
+            if (objectParameters.size() > 1 && (name1 == "Size" || name1 == "Position" || name1 == "Height" || name1 == "Patching XY" || name1 == "Presentation XY")) {
                 return false;
             }
 

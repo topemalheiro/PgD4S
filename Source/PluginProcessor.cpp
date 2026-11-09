@@ -38,6 +38,7 @@
 #include "Utility/Recorder.h"
 
 #include "Sidebar/Sidebar.h"
+#include "Components/PresentationWindow.h"
 
 #include "Object.h"
 
@@ -206,6 +207,9 @@ PluginProcessor::PluginProcessor()
 PluginProcessor::~PluginProcessor()
 {
     constructed = false;
+
+    // PgD4S: presentation windows [pcontrol] opened hold editors of this instance
+    PresentationWindow::closeAll(this);
 
     // Deleting the pd instance in ~PdInstance() will also free all the Pd patches
     patches.clear();

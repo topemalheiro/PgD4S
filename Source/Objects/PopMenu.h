@@ -213,8 +213,11 @@ public:
 
         nvgDrawRoundedRect(nvg, b.getX(), b.getY(), b.getWidth(), b.getHeight(), bgCol, nvgColour(object->isSelected() ? PlugDataColours::objectSelectedOutlineColour : PlugDataColours::objectOutlineColour), Corners::objectCornerRadius);
 
-        auto textBounds = getLocalBounds().reduced(2).translated(2, 0);
+        // PgD4S: the text stops before the arrows, so a long item doesn't run under them
+        auto textBounds = getLocalBounds().reduced(2).translated(2, 0).withTrimmedRight(16);
         if (!textBounds.isEmpty()) {
+            NVGScopedState clipState(nvg);
+            nvgIntersectScissor(nvg, textBounds.getX(), 0, textBounds.getWidth(), getHeight());
             textRenderer.renderText(nvg, textBounds.toFloat(), getImageScale());
         }
 

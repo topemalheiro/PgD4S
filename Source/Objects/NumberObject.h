@@ -19,6 +19,13 @@ class NumberObject final : public ObjectBase {
     Value logHeight = SynchronousValue();
     Value logMode = SynchronousValue();
 
+    // PgD4S: live.numbox's looks, stored as attributes ("#X attr")
+    Value showArrow = SynchronousValue();
+    Value fillBox = SynchronousValue();
+    Value decimals = SynchronousValue();
+    Value unitText = SynchronousValue();
+    Value alignment = SynchronousValue();
+
     float preFocusValue;
     float value = 0.0f;
 
@@ -102,8 +109,36 @@ public:
         objectParameters.addParamColourLabel(&iemHelper.labelColour);
         objectParameters.addParamRange("Position", cLabel, &iemHelper.labelPosition, { 0, -8 });
         objectParameters.addParamBool("Initialise", cGeneral, &iemHelper.initialise, { "No", "Yes" }, 0);
+        objectParameters.addParamBool("Arrow", cAppearance, &showArrow, { "No", "Yes" }, 1);
+        objectParameters.addParamBool("Background", cAppearance, &fillBox, { "No", "Yes" }, 1);
+        objectParameters.addParamCombo("Decimals", cAppearance, &decimals, { "Auto", "0", "1", "2", "3", "4" }, 1);
+        objectParameters.addParamString("Unit", cAppearance, &unitText, "");
+        objectParameters.addParamCombo("Alignment", cAppearance, &alignment, { "Left", "Centred", "Right" }, 1);
 
         input.setResetValue(0.0f);
+    }
+
+    static inline StringArray const alignNames { "left", "center", "right" };
+
+    // PgD4S: the attributes behind live.numbox's looks; set without the listener, so reading never
+    // writes them back
+    void readAttributes()
+    {
+        setParameterExcludingListener(showArrow, getAttribute("arrow", "1").getIntValue() != 0);
+        setParameterExcludingListener(fillBox, getAttribute("fill", "1").getIntValue() != 0);
+        setParameterExcludingListener(decimals, hasAttribute("decimals") ? std::clamp(getAttribute("decimals").getIntValue(), 0, 4) + 2 : 1);
+        setParameterExcludingListener(unitText, getAttribute("unit"));
+        setParameterExcludingListener(alignment, std::max(1, alignNames.indexOf(getAttribute("align")) + 1));
+        updateDisplayFormat();
+    }
+
+    void updateDisplayFormat()
+    {
+        auto const align = getValue<int>(alignment);
+        auto const justification = align == 2 ? Justification::centred : align == 3 ? Justification::centredRight : Justification::centredLeft;
+        input.setDisplayFormat(getValue<int>(decimals) - 2, unitText.toString(), justification);
+        input.setBorderSize({ 1, getValue<bool>(showArrow) ? 12 : 2, 1, getValue<bool>(showArrow) ? 0 : 2 });
+        repaint();
     }
 
     void update() override
@@ -128,6 +163,7 @@ public:
 
         auto const fontHeight = getValue<int>(iemHelper.labelHeight);
         input.setFont(Fonts::getTabularNumbersFont().withHeight(fontHeight + 3.0f));
+        readAttributes();
         updateLabel();
     }
 
@@ -311,7 +347,24 @@ public:
 
     void propertyChanged(Value& value) override
     {
-        if (value.refersToSameSourceAs(widthProperty)) {
+        if (value.refersToSameSourceAs(showArrow)) {
+            setAttribute("arrow", getValue<bool>(showArrow) ? "" : "0");
+            updateDisplayFormat();
+        } else if (value.refersToSameSourceAs(fillBox)) {
+            setAttribute("fill", getValue<bool>(fillBox) ? "" : "0");
+            updateDisplayFormat();
+        } else if (value.refersToSameSourceAs(decimals)) {
+            auto const fixed = getValue<int>(decimals) - 2;
+            setAttribute("decimals", fixed >= 0 ? String(fixed) : String());
+            updateDisplayFormat();
+        } else if (value.refersToSameSourceAs(unitText)) {
+            setAttribute("unit", unitText.toString());
+            updateDisplayFormat();
+        } else if (value.refersToSameSourceAs(alignment)) {
+            auto const align = getValue<int>(alignment);
+            setAttribute("align", align > 1 ? alignNames[align - 1] : "");
+            updateDisplayFormat();
+        } else if (value.refersToSameSourceAs(widthProperty)) {
             auto const numWidth = std::max(getValue<int>(widthProperty), 1);
             auto const width = calcFontWidth(numWidth) + 1;
 
@@ -371,7 +424,17 @@ public:
 
         bool const selected = object->isSelected() && !cnv->isGraph;
 
-        nvgDrawRoundedRect(nvg, b.getX(), b.getY(), b.getWidth(), b.getHeight(), backgroundCol, nvgColour(selected ? PlugDataColours::objectSelectedOutlineColour : PlugDataColours::objectOutlineColour), Corners::objectCornerRadius);
+        // PgD4S: without a background, just the text (an outline only while editing the patch)
+        if (getValue<bool>(fillBox)) {
+            nvgDrawRoundedRect(nvg, b.getX(), b.getY(), b.getWidth(), b.getHeight(), backgroundCol, nvgColour(selected ? PlugDataColours::objectSelectedOutlineColour : PlugDataColours::objectOutlineColour), Corners::objectCornerRadius);
+        } else if (selected || !getValue<bool>(object->locked)) {
+            nvgDrawRoundedRect(nvg, b.getX(), b.getY(), b.getWidth(), b.getHeight(), nvgRGBA(0, 0, 0, 0), nvgColour(selected ? PlugDataColours::objectSelectedOutlineColour : PlugDataColours::objectOutlineColour.withAlpha(0.5f)), Corners::objectCornerRadius);
+        }
+
+        if (!getValue<bool>(showArrow)) {
+            input.render(nvg, cnv->editor->getNanoLLGC());
+            return;
+        }
 
         constexpr float indent = 9.0f;
         Rectangle<float> const iconBounds = { (b.getX() + 4.0f), (b.getY() + 4.0f), (indent - 4.0f), (b.getHeight() - 8.0f) };

@@ -180,6 +180,11 @@ public:
         setWidthAndHeight(jmin(scaleX, scaleY));
         return;
 #endif
+        if (editor->presentationWindow) {
+            // PgD4S: a subpatch's presentation window shows it at 100%, as Max does
+            setWidthAndHeight(1.0f);
+            return;
+        }
         if (embedded) {
             // the face's own zoom, so it fills the height Spite's Device view gives faces
             lastHostFaceHeight = hostFaceHeight();
@@ -556,7 +561,7 @@ private:
     PluginEditor* editor;
     ComponentPeer* desktopWindow;
 
-    bool const embedded = editor->embeddedFace;
+    bool const embedded = editor->embeddedFace || editor->presentationWindow;
     int lastHostFaceHeight = 0;
     Component titleBar;
     int titlebarHeight = 40;

@@ -78,6 +78,8 @@ public:
     void openHelpPatch() const;
     t_gobj* getPointer() const;
     bool isHiddenByPresentation() const;
+    // Hidden in graphs and presentation mode when the object asks to be, or the presentation layout leaves it out
+    void updateVisibility();
     // PgD4S: how far the presentation layout shows this object from its patch position ((0, 0) without one)
     Point<int> getPresentationOffset() const;
 

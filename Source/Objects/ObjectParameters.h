@@ -165,7 +165,8 @@ public:
 
     void addParamPosition(Value* positionValue)
     {
-        objectParameters.add(ObjectParameter("Position", tRangeInt, cDimensions, positionValue, StringArray(), var()));
+        // PgD4S: "Patching position", next to the presentation position (Max-style presentation)
+        objectParameters.add(ObjectParameter("Patching XY", tRangeInt, cDimensions, positionValue, StringArray(), var()));
     }
 
     void addParamSize(Value* sizeValue, bool const singleDimension = false)

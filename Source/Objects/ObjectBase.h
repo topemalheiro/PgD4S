@@ -237,6 +237,12 @@ public:
 
     virtual ResizeDirection getAllowedResizeDirections() const;
 
+    // PgD4S: per-object attributes ("#X attr <index> <key> <values>"), for options an object's own
+    // creation arguments can't hold (ELSE's and vanilla's objects). Values are space-separated words.
+    bool hasAttribute(String const& key) const;
+    String getAttribute(String const& key, String const& defaultValue = {}) const;
+    void setAttribute(String const& key, String const& value); // an empty value removes it
+
 protected:
     // Set parameter without triggering valueChanged
     void setParameterExcludingListener(Value& parameter, var const& value);
@@ -289,6 +295,20 @@ protected:
 
     ObjectSizeListener objectSizeListener;
     Value positionParameter = SynchronousValue();
+
+    // PgD4S: the presentation position (Max-style presentation layout), next to the patching position
+    struct PresentationListener final : public Value::Listener {
+        explicit PresentationListener(ObjectBase* p)
+            : parent(p)
+        {
+        }
+        void valueChanged(Value& v) override;
+        ObjectBase* parent;
+    };
+    Value inPresentationParameter = SynchronousValue();
+    Value presentationPositionParameter = SynchronousValue();
+    PresentationListener presentationListener { this };
+    void updatePositionParameters();
 
     friend class IEMHelper;
     friend class AtomHelper;

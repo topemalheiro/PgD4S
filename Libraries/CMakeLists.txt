@@ -171,6 +171,7 @@ file(GLOB PD_SOURCES
     ${PD_PATH}/src/x_net.c
     ${PD_PATH}/src/x_scalar.c
     ${PD_PATH}/src/x_text.c
+    ${PD_PATH}/src/x_spite.c
     ${PD_PATH}/src/x_time.c
     ${PD_PATH}/src/x_vexp.c
     ${PD_PATH}/src/x_vexp_fun.c

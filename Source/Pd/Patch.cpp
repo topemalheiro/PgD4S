@@ -317,18 +317,36 @@ t_gobj* Patch::renameObject(t_object* obj, String const& name)
     String const newName = tokens.joinIntoString(" ");
 
     if (auto patch = ptr.get<t_glist>()) {
-        // PgD4S: Pd retypes an object by making a new one; that one keeps the old one's presentation position
+        // PgD4S: Pd retypes an object by making a new one; that one keeps the old one's presentation
+        // position and attributes ("#X attr")
         int presentationX = 0, presentationY = 0;
         bool const presented = canvas_presentation_get(patch.get(), &obj->te_g, &presentationX, &presentationY);
+
+        struct SavedAttribute {
+            t_symbol* key;
+            SmallArray<t_atom> values;
+        };
+        SmallArray<SavedAttribute> attributes;
+        for (auto* a = patch->gl_attr; a; a = a->a_next) {
+            if (a->a_obj == &obj->te_g)
+                attributes.add({ a->a_key, SmallArray<t_atom>(a->a_argv, a->a_argv + a->a_argc) });
+        }
 
         pd::Interface::renameObject(patch.get(), &obj->te_g, newName.toRawUTF8(), newName.getNumBytesAsUTF8());
         auto* renamed = pd::Interface::getNewest(patch.get());
 
-        // Deleting the old object dropped its entry; an entry still there means nothing was remade
+        // Deleting the old object dropped its entries; an entry still there means nothing was remade
         // (only pointers are compared, so a freed old object is never read)
         if (presented && renamed && !canvas_presentation_get(patch.get(), &obj->te_g, nullptr, nullptr)
             && !canvas_presentation_get(patch.get(), renamed, nullptr, nullptr))
             canvas_presentation_set(patch.get(), renamed, presentationX, presentationY);
+
+        if (!attributes.empty() && renamed && !canvas_attr_get(patch.get(), &obj->te_g, attributes[0].key, nullptr, nullptr)) {
+            for (auto& attribute : attributes) {
+                if (!canvas_attr_get(patch.get(), renamed, attribute.key, nullptr, nullptr))
+                    canvas_attr_set(patch.get(), renamed, attribute.key, attribute.values.size(), attribute.values.data());
+            }
+        }
 
         return renamed;
     }

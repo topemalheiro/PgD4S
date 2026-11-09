@@ -194,6 +194,11 @@ public:
     // no title bar, sized by the host); the plugin's own window keeps the normal editor
     bool embeddedFace = false;
 
+    // PgD4S: this editor is a window [pcontrol] opened to show a subpatch's presentation (Max's
+    // openinpresentation): plugin mode on that subpatch, at 100%, without plugin mode's title bar
+    bool presentationWindow = false;
+    pd::Patch::Ptr presentationWindowPatch;
+
     bool isInPluginMode() const;
 
     // Return the canvas currently in plugin mode, otherwise return nullptr

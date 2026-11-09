@@ -42,6 +42,16 @@ class Knob final : public Component
     float interval = 0.0f;
 
 public:
+    // PgD4S: needle-only looks for Live's tiny dials: a plain needle, or PgD4S's own needles that lean
+    // left or right of the pivot
+    enum NeedleStyle {
+        NormalKnob = 0,
+        PlainNeedle,
+        NeedleLeaningLeft,
+        NeedleLeaningRight
+    };
+    int needleStyle = NormalKnob;
+
     std::function<void()> onDragStart, onDragEnd;
     std::function<void()> onValueChange;
 
@@ -265,6 +275,11 @@ public:
 
         startAngle = std::clamp<float>(startAngle, endAngle - MathConstants<float>::twoPi, endAngle + MathConstants<float>::twoPi);
 
+        if (needleStyle != NormalKnob) {
+            renderNeedle(nvg, angle);
+            return;
+        }
+
         if (drawArc) {
             auto const arcBounds = bounds.reduced(lineThickness);
             auto const arcRadius = arcBounds.getWidth() * 0.5;
@@ -300,6 +315,46 @@ public:
         nvgStroke(nvg);
 
         drawTicks(nvg, bounds, startAngle, endAngle, lineThickness);
+    }
+
+    // PgD4S: a needle and nothing else. The plain needle runs from the pivot to the rim; the leaning
+    // ones start beside the pivot (left or right of it, seen along the needle), so they cross the dial as
+    // a slanted stroke, with a small pivot dot in the arc colour.
+    void renderNeedle(NVGcontext* nvg, float const angle) const
+    {
+        auto const bounds = getLocalBounds().toFloat().reduced(getWidth() * 0.1f);
+        auto const radius = bounds.getWidth() * 0.5f;
+        auto const centre = bounds.getCentre();
+        auto const thickness = std::max(radius * 0.2f, 2.0f);
+
+        auto const tip = centre + Point<float>(std::cos(angle), std::sin(angle)) * radius * 0.92f;
+        auto base = centre;
+        if (needleStyle != PlainNeedle) {
+            // perpendicular to the needle: -90 degrees is its left side, +90 its right
+            auto const side = angle + (needleStyle == NeedleLeaningLeft ? -1.0f : 1.0f) * MathConstants<float>::halfPi;
+            base = centre + Point<float>(std::cos(side), std::sin(side)) * radius * 0.38f;
+        }
+
+        if (needleStyle != PlainNeedle) {
+            nvgBeginPath(nvg);
+            nvgCircle(nvg, centre.x, centre.y, thickness * 0.55f);
+            nvgFillColor(nvg, nvgColour(arcColour));
+            nvgFill(nvg);
+        }
+
+        nvgBeginPath(nvg);
+        nvgMoveTo(nvg, base.x, base.y);
+        nvgLineTo(nvg, tip.x, tip.y);
+        nvgStrokeWidth(nvg, thickness);
+        nvgStrokeColor(nvg, nvgColour(fgColour));
+        nvgLineCap(nvg, NVG_ROUND);
+        nvgStroke(nvg);
+    }
+
+    void setNeedleStyle(int const style)
+    {
+        needleStyle = style;
+        repaint();
     }
 
     void setFgColour(Colour const newFgColour)
@@ -396,6 +451,15 @@ class KnobObject final : public ObjectBase {
     Value sizeProperty = SynchronousValue();
     Value transparent = SynchronousValue();
 
+    // PgD4S: stored as attributes ("#X attr"), as ELSE's knob has no arguments for them
+    Value nameText = SynchronousValue();
+    Value nameSize = SynchronousValue();
+    Value textColour = SynchronousValue();
+    Value unitText = SynchronousValue();
+    Value decimals = SynchronousValue();
+    Value numberAlign = SynchronousValue();
+    Value needle = SynchronousValue();
+
     NVGcolor bgCol;
 
     String typeBuffer;
@@ -452,9 +516,15 @@ public:
         objectParameters.addParamString("Variable", cGeneral, &variableName, "");
         objectParameters.addParamString("Parameter", cGeneral, &parameterName, "");
 
+        objectParameters.addParamString("Name", cLabel, &nameText, "");
+        objectParameters.addParamInt("Name size", cLabel, &nameSize, 10, true, 4);
+        objectParameters.addParamColour("Text colour", cLabel, &textColour, PlugDataColour::canvasTextColourId);
         objectParameters.addParamCombo("Show number", cLabel, &showNumber, { "Never", "Always", "When active", "When typing", "When hovering" }, 0);
         objectParameters.addParamInt("Size", cLabel, &numberSize, 3, true, 8);
         objectParameters.addParamRangeInt("Position", cLabel, &numberPosition, { 6, -15 });
+        objectParameters.addParamCombo("Alignment", cLabel, &numberAlign, { "Left", "Centred" }, 1);
+        objectParameters.addParamCombo("Decimals", cLabel, &decimals, { "Auto", "0", "1", "2", "3", "4" }, 1);
+        objectParameters.addParamString("Unit", cLabel, &unitText, "");
 
         objectParameters.addParamColourFG(&primaryColour);
         objectParameters.addParamColourBG(&secondaryColour);
@@ -463,6 +533,34 @@ public:
         objectParameters.addParamBool("Square", cAppearance, &square, { "No", "Yes" }, 1);
         objectParameters.addParamBool("Show arc", cAppearance, &showArc, { "No", "Yes" }, 1);
         objectParameters.addParamBool("Transparent", cAppearance, &transparent, { "No", "Yes" }, 0);
+        objectParameters.addParamCombo("Needle", cAppearance, &needle, { "Knob", "Plain needle", "Needle leaning left", "Needle leaning right" }, 1);
+    }
+
+    static inline StringArray const needleNames { "", "plain", "left", "right" };
+
+    // PgD4S: the attributes behind the label and needle options
+    void readAttributes()
+    {
+        // set without the property listener, so reading never writes attributes back
+        setParameterExcludingListener(nameText, getAttribute("name"));
+        setParameterExcludingListener(nameSize, getAttribute("namesize", "10").getIntValue());
+        auto const colour = getAttribute("textcolor");
+        setParameterExcludingListener(textColour, colour.isNotEmpty() ? convertTclColour(colour).toString() : PlugDataColours::canvasTextColour.toString());
+        setParameterExcludingListener(unitText, getAttribute("unit"));
+        setParameterExcludingListener(decimals, hasAttribute("decimals") ? std::clamp(getAttribute("decimals").getIntValue(), 0, 4) + 2 : 1);
+        setParameterExcludingListener(numberAlign, getAttribute("numberalign") == "center" ? 2 : 1);
+        setParameterExcludingListener(needle, std::max(1, needleNames.indexOf(getAttribute("needle")) + 1));
+        knob.setNeedleStyle(::getValue<int>(needle) - 1);
+    }
+
+    String formatValue(float const v) const
+    {
+        auto const fixed = ::getValue<int>(decimals) - 2;
+        auto text = fixed >= 0 ? String(v, fixed) : String(v, 2);
+        if (fixed == 0)
+            text = String(roundToInt(v));
+        auto const unit = unitText.toString();
+        return unit.isNotEmpty() ? text + " " + unit : text;
     }
 
     void onConstrainerCreate() override
@@ -599,6 +697,8 @@ public:
 
         sendSymbol = getSendSymbol();
         receiveSymbol = getReceiveSymbol();
+
+        readAttributes();
 
         knob.setFgColour(getForegroundColour());
         knob.setArcColour(getArcColour());
@@ -881,6 +981,12 @@ public:
     {
         auto const b = getLocalBounds().toFloat();
 
+        // PgD4S: a needle style is just the needle, as Live's tiny dials
+        if (::getValue<int>(needle) > 1) {
+            knob.render(nvg);
+            return;
+        }
+
         auto const background = ::getValue<bool>(transparent) ? nvgRGBA(0, 0, 0, 0) : bgCol;
         if (::getValue<bool>(square)) {
             bool const selected = object->isSelected() && !cnv->isGraph;
@@ -979,29 +1085,52 @@ public:
 
     void updateLabel() override
     {
-        ObjectLabel* label = nullptr;
-        if (labels.isEmpty()) {
-            label = labels.add(new ObjectLabel());
-            object->cnv->addChildComponent(label);
-        } else {
-            label = labels[0];
+        while (labels.size() < 2) {
+            auto* newLabel = labels.add(new ObjectLabel());
+            object->cnv->addChildComponent(newLabel);
+        }
+        ObjectLabel* label = labels[0];
+
+        // PgD4S: the colour set for the labels (live.dial's textcolor), else the canvas text colour
+        auto labelColour = PlugDataColours::canvasTextColour;
+        if (hasAttribute("textcolor")) {
+            labelColour = Colour::fromString(textColour.toString());
+        } else if (std::abs(labelColour.getBrightness() - PlugDataColours::canvasBackgroundColour.getBrightness()) < 0.3f) {
+            labelColour = PlugDataColours::canvasBackgroundColour.contrasting();
+        }
+
+        // PgD4S: the parameter name, centred above the knob (live.dial's showname)
+        if (auto* nameLabel = labels[1]) {
+            auto const name = nameText.toString();
+            auto const nameFont = Fonts::getCurrentFont().withHeight(::getValue<int>(nameSize));
+            auto const nameWidth = Fonts::getStringWidth(name, nameFont) + 4;
+            auto const nameHeight = ::getValue<int>(nameSize) + 2;
+            auto const knobBounds = object->getBounds().reduced(Object::margin);
+            nameLabel->setFont(nameFont);
+            nameLabel->setJustificationType(Justification::centred);
+            nameLabel->setBounds(knobBounds.getCentreX() - nameWidth / 2, knobBounds.getY() - nameHeight, nameWidth, nameHeight);
+            nameLabel->setLabelColour(labelColour);
+            nameLabel->setText(name, dontSendNotification);
+            nameLabel->setVisible(name.isNotEmpty());
         }
 
         if (label) {
             auto const& arr = *numberPosition.getValue().getArray();
             auto const height = ::getValue<int>(numberSize);
             auto const font = Font(FontOptions(height));
-            auto const labelText = String(getScaledValue(), 2);
-            auto const width = Fonts::getStringWidth(labelText, font);
-            auto const bounds = Rectangle<int>(object->getX() + 5 + static_cast<int>(arr[0]), object->getY() + 3 + static_cast<int>(arr[1]), width, height);
+            auto const labelText = formatValue(getScaledValue());
+            auto const width = Fonts::getStringWidth(typeBuffer.isEmpty() ? labelText : typeBuffer, font) + 2;
+            auto bounds = Rectangle<int>(object->getX() + 5 + static_cast<int>(arr[0]), object->getY() + 3 + static_cast<int>(arr[1]), width, height);
+            if (::getValue<int>(numberAlign) == 2) {
+                // centred on the knob's centre, the x offset counted from there
+                auto const knobBounds = object->getBounds().reduced(Object::margin);
+                bounds.setX(knobBounds.getCentreX() + static_cast<int>(arr[0]) - width / 2);
+            }
             label->setFont(font);
+            label->setJustificationType(::getValue<int>(numberAlign) == 2 ? Justification::centred : Justification::centredLeft);
             label->setBounds(bounds);
 
-            auto textColour = PlugDataColours::canvasTextColour;
-            if (std::abs(textColour.getBrightness() - PlugDataColours::canvasBackgroundColour.getBrightness()) < 0.3f) {
-                textColour = PlugDataColours::canvasBackgroundColour.contrasting();
-            }
-            label->setLabelColour(textColour);
+            label->setLabelColour(labelColour);
             label->setText(typeBuffer.isEmpty() ? labelText : typeBuffer, dontSendNotification);
 
             auto showNumberType = ::getValue<int>(showNumber);
@@ -1322,6 +1451,29 @@ public:
             if (auto knb = ptr.get<t_fake_knob>()) {
                 knb->x_transparent = ::getValue<bool>(transparent);
             }
+            repaint();
+        } else if (value.refersToSameSourceAs(nameText)) {
+            setAttribute("name", nameText.toString());
+            updateLabel();
+        } else if (value.refersToSameSourceAs(nameSize)) {
+            setAttribute("namesize", String(::getValue<int>(nameSize)));
+            updateLabel();
+        } else if (value.refersToSameSourceAs(textColour)) {
+            setAttribute("textcolor", "#" + Colour::fromString(textColour.toString()).toDisplayString(false).toLowerCase());
+            updateLabel();
+        } else if (value.refersToSameSourceAs(unitText)) {
+            setAttribute("unit", unitText.toString());
+            updateLabel();
+        } else if (value.refersToSameSourceAs(decimals)) {
+            auto const fixed = ::getValue<int>(decimals) - 2;
+            setAttribute("decimals", fixed >= 0 ? String(fixed) : String());
+            updateLabel();
+        } else if (value.refersToSameSourceAs(numberAlign)) {
+            setAttribute("numberalign", ::getValue<int>(numberAlign) == 2 ? "center" : "");
+            updateLabel();
+        } else if (value.refersToSameSourceAs(needle)) {
+            setAttribute("needle", needleNames[std::clamp(::getValue<int>(needle) - 1, 0, 3)]);
+            knob.setNeedleStyle(::getValue<int>(needle) - 1);
             repaint();
         }
     }

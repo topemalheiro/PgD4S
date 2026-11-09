@@ -42,6 +42,10 @@ protected:
     double valueToResetTo = 0.0;
     double valueToRevertTo = 0.0;
     int maxPrecision = 6;
+    // PgD4S: live.numbox's display (see setDisplayFormat)
+    int fixedDecimals = -1;
+    String suffix;
+    Justification textJustification = Justification::centredLeft;
     Colour outlineColour, textColour;
     Font font = Font(FontOptions());
 
@@ -98,6 +102,10 @@ public:
     void setLogarithmicHeight(double logHeight);
 
     void setPrecision(int precision);
+
+    // PgD4S: show the value with a fixed number of decimals (-1: as usual), followed by a suffix (a
+    // unit: "0.0 dB"), aligned left, centred or right in the box
+    void setDisplayFormat(int decimals, String const& unit, Justification justification);
 
     // Toggle between showing ellipses or ">" if number is too large to fit
     void setShowEllipsesIfTooLong(bool shouldShowEllipses);

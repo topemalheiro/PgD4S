@@ -139,7 +139,12 @@ public:
         }
 
         auto const scale = getImageScale();
-        if (needsRepaint || isEditorShown() || imageRenderer.needsUpdate(roundToInt(getWidth() * scale), roundToInt(getHeight() * scale))) {
+
+        // PgD4S: the editor can sit to the left of the box (text wider than a centred or right-aligned box)
+        NVGScopedState offsetState(nvg);
+        nvgTranslate(nvg, noteEditor.getX(), noteEditor.getY());
+
+        if (needsRepaint || isEditorShown() || imageRenderer.needsUpdate(roundToInt(noteEditor.getWidth() * scale), roundToInt(noteEditor.getHeight() * scale))) {
             imageRenderer.renderJUCEComponent(nvg, noteEditor, scale);
             needsRepaint = false;
         } else {
@@ -203,7 +208,46 @@ public:
             noteEditor.setJustification(Justification::topRight);
         }
 
+        updateEditorBounds();
         needsRepaint = true;
+    }
+
+    // PgD4S: a note with a fixed width (Max's comments, converted) lays its text out in exactly that
+    // width, so centred and right-aligned text line up with the box. A word too long for the box widens
+    // the text area instead of breaking: evenly on both sides when centred, to the left when right-aligned.
+    void updateEditorBounds()
+    {
+        auto bounds = getLocalBounds();
+        bool fixedWidth = false;
+        if (auto note = ptr.get<t_fake_note>())
+            fixedWidth = note->x_resized;
+
+        auto const justificationType = getValue<int>(justification);
+
+        // Centred text gets an even border, so it centres on the box (the usual one is 7 px on the left only)
+        auto const editorBorder = fixedWidth && justificationType == 2 ? BorderSize<int>(1, 2, 1, 2) : border;
+        if (noteEditor.getBorder() != editorBorder)
+            noteEditor.setBorder(editorBorder);
+
+        if (!fixedWidth) {
+            noteEditor.setBounds(bounds.withTrimmedRight(-6));
+            return;
+        }
+
+        auto const font = getFont();
+        int longestWord = 0;
+        for (auto const& word : StringArray::fromTokens(getNote(), " \n", ""))
+            longestWord = std::max(longestWord, roundToInt(CachedFontStringWidth::get()->calculateStringWidth(font, word)) + editorBorder.getLeftAndRight() + 4);
+
+        if (longestWord > bounds.getWidth()) {
+            if (justificationType == 2)
+                bounds = bounds.withSizeKeepingCentre(longestWord, bounds.getHeight());
+            else if (justificationType == 3)
+                bounds = bounds.withLeft(bounds.getRight() - longestWord);
+            else
+                bounds = bounds.withWidth(longestWord);
+        }
+        noteEditor.setBounds(bounds);
     }
 
     void updateSizeProperty() override
@@ -242,7 +286,7 @@ public:
 
     void resized() override
     {
-        noteEditor.setBounds(getLocalBounds().withTrimmedRight(-6));
+        updateEditorBounds();
     }
 
     void mouseEnter(MouseEvent const& e) override
@@ -460,6 +504,7 @@ public:
     {
         noteEditor.applyFontToAllText(getFont());
         object->updateBounds();
+        updateEditorBounds();
         needsRepaint = true;
         repaint();
     }
