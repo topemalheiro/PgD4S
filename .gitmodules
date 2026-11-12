@@ -1,9 +1,11 @@
 [submodule "JUCE"]
 	path = Libraries/JUCE
 	url = https://github.com/topemalheiro/JUCE.git
+	branch = pgd4s
 [submodule "Libraries/pure-data"]
 	path = Libraries/pure-data
 	url = https://github.com/topemalheiro/plugdata-pd.git
+	branch = pgd4s
 [submodule "Libraries/heavylib"]
 	path = Libraries/heavylib
 	url = https://github.com/Wasted-Audio/heavylib.git
