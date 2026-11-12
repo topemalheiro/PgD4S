@@ -23,6 +23,7 @@ using namespace juce::gl;
 #include "Pd/Patch.h"
 #include "Components/ConnectionMessageDisplay.h"
 #include "Sidebar/ConnectionDebugPanel.h"
+#include "DebugExecutionScheduler.h"
 
 std::atomic<float> Connection::debugSpeedMultiplier { 1.0f };
 std::atomic<bool> Connection::debugPaused { false };
@@ -1456,7 +1457,7 @@ void Connection::receiveMessage(t_symbol* symbol, SmallArray<pd::Atom> const& at
 
         // In execution-order mode the scheduler animates one message at a time,
         // so don't add it to the free-running debugMessages queue.
-        if (!plugdata_execution_order_enabled()) {
+        if (!DebugExecutionScheduler::isExecutionOrderEnabled()) {
             debugMessages.push_back(msg);
             while (debugMessages.size() > maxDebugMessages) {
                 debugMessages.pop_front();

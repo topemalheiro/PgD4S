@@ -27,7 +27,7 @@ void DebugExecutionScheduler::setEnabled(bool const shouldBeEnabled)
         return;
 
     enabled = shouldBeEnabled;
-    set_plugdata_execution_order_enabled(enabled);
+    executionOrderEnabled.store(enabled, std::memory_order_relaxed);
 
     if (!enabled) {
         clear();

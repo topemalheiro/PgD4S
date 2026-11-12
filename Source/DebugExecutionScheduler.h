@@ -23,9 +23,16 @@ public:
     void setEnabled(bool enabled);
     bool isEnabled() const { return enabled; }
 
+    // True while a scheduler plays messages one at a time in execution order, so connections don't animate them on their own
+    static bool isExecutionOrderEnabled() { return executionOrderEnabled.load(std::memory_order_relaxed); }
+
     void clear();
 
 private:
+    // Shared by every scheduler in the process, like the flag Pd used to keep for this
+    static inline std::atomic<bool> executionOrderEnabled { false };
+
+
     Connection* findConnectionForEvent(pd::ConnectionTraceEvent const& event) const;
     void scheduleNextEvent();
     void reorderPendingEventsByOutletPriority();
