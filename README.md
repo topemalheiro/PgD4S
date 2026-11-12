@@ -1,3 +1,7 @@
+> **This is PgD4S, plugdata for Spite**: the build of [plugdata](https://github.com/plugdata-team/plugdata) that runs inside [Spite](https://github.com/topemalheiro/Spite).
+> It adds what Spite's devices need, such as a Max-style presentation mode and the objects that converted Max for Live devices use.
+> For plugdata itself, go to [plugdata-team/plugdata](https://github.com/plugdata-team/plugdata).
+
 <p align="center">
   <a href="https://github.com/plugdata-team/plugdata/wiki">
     <img src="https://github.com/plugdata-team/plugdata/assets/44585538/17062f59-bb1b-442e-a0ba-a96a74327460" alt="Logo" width=130 height=130>
