@@ -718,9 +718,9 @@ void PluginEditor::resized()
             if(leftExpanded) statusbarBounds = statusbarBounds.withX(leftSidebar->getRight());
             if(rightExpanded) statusbarBounds = statusbarBounds.withRight(rightSidebar->getX());
             touchSelectionHelper->setBounds(statusbarBounds.withSizeKeepingCentre(192, 46));
-            statusbar->setBounds(statusbarBounds.removeFromLeft(208).translated(leftSidebar->getX() + 4, 0));
+            statusbar->setBounds(statusbarBounds.removeFromLeft(Statusbar::getDesiredWidth()).translated(leftSidebar->getX() + 4, 0));
         } else {
-            statusbar->setBounds(statusbarBounds.withSizeKeepingCentre(204, 46));
+            statusbar->setBounds(statusbarBounds.withSizeKeepingCentre(Statusbar::getDesiredWidth(), 46));
         }
         consoleMessageDisplay->setBounds(statusbarBounds.removeFromRight(consoleMessageDisplay->getDesiredWidth() + 2).translated(-8, 0));
     } else {

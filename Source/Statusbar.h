@@ -37,6 +37,26 @@ public:
     static constexpr int statusbarHeight = 30;
     float currentZoomLevel = 100.0f;
 
+    // Widths used by resized(), so the floating status bar can be made wide enough for all its items
+    static constexpr int margin = 6;
+    static constexpr int spacing = 10;
+    static constexpr int editModeWidth = 34;
+    static constexpr int presentationGap = 4;
+    static constexpr int presentationWidth = 22;
+    static constexpr int zoomWidth = 55;
+    static constexpr int gridWidth = 34;
+    static constexpr int overlayWidth = 34;
+    static constexpr int detectiveButtonWidth = 64;
+    static constexpr int detectiveGap = 4;
+    static constexpr int detectiveSliderWidth = 120;
+
+    // Width that fits every item, with a margin on both sides (the floating status bar's width)
+    static constexpr int getDesiredWidth()
+    {
+        return margin + editModeWidth + presentationGap + presentationWidth + spacing + zoomWidth + spacing + gridWidth + spacing
+            + overlayWidth + spacing + detectiveButtonWidth + detectiveGap + detectiveSliderWidth + margin;
+    }
+
 private:
     void updateCachedRenderingMode();
 

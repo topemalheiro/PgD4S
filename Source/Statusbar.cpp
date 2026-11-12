@@ -486,27 +486,27 @@ void Statusbar::resized()
     updateCachedRenderingMode();
 
     bool const floatingPanels = SettingsFile::getInstance()->getProperty<bool>("floating_panels");
-    auto b = floatingPanels ? getLocalBounds().reduced(6, 0) : getLocalBounds().withTrimmedLeft(6);
-    constexpr int spacing = 10;
+    auto b = floatingPanels ? getLocalBounds().reduced(margin, 0) : getLocalBounds().withTrimmedLeft(margin);
 
     // PgD4S: the canvas modes come first, in the corner where Max keeps its lock and presentation
     // buttons; in the middle, touch mode's selection helper covers them while editing
-    editModeGroup->setBounds(b.removeFromLeft(34));
-    b.removeFromLeft(4);
-    presentationButton->setBounds(b.removeFromLeft(22));
+    // Keep these widths in step with getDesiredWidth(), which sizes the floating status bar
+    editModeGroup->setBounds(b.removeFromLeft(editModeWidth));
+    b.removeFromLeft(presentationGap);
+    presentationButton->setBounds(b.removeFromLeft(presentationWidth));
     b.removeFromLeft(spacing);
 
-    zoomSelector->setBounds(b.removeFromLeft(55));
+    zoomSelector->setBounds(b.removeFromLeft(zoomWidth));
     b.removeFromLeft(spacing);
 
-    gridGroup->setBounds(b.removeFromLeft(34));
+    gridGroup->setBounds(b.removeFromLeft(gridWidth));
     b.removeFromLeft(spacing);
 
-    overlayGroup->setBounds(b.removeFromLeft(34));
+    overlayGroup->setBounds(b.removeFromLeft(overlayWidth));
     b.removeFromLeft(spacing);
 
-    detectiveModeButton->setBounds(b.removeFromLeft(64));
-    b.removeFromLeft(4);
+    detectiveModeButton->setBounds(b.removeFromLeft(detectiveButtonWidth));
+    b.removeFromLeft(detectiveGap);
 
-    detectiveSpeedSlider->setBounds(b.removeFromLeft(120));
+    detectiveSpeedSlider->setBounds(b.removeFromLeft(detectiveSliderWidth));
 }
