@@ -33,7 +33,6 @@ public:
 
     void setEditButtonState(bool locked, bool present = false);
     void setDetectiveModeEnabled(bool enabled);
-    void setDetectiveSpeedSliderEnabled(bool enabled);
 
     static constexpr int statusbarHeight = 30;
     float currentZoomLevel = 100.0f;

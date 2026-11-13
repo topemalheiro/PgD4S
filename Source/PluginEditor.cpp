@@ -1160,7 +1160,6 @@ void PluginEditor::setDebugConnectionsEnabled(bool const enabled, bool const ope
     debugModeButton.setToggleState(enabled, dontSendNotification);
     if (statusbar) {
         statusbar->setDetectiveModeEnabled(enabled);
-        statusbar->setDetectiveSpeedSliderEnabled(enabled);
     }
 
     if (debugExecutionScheduler)

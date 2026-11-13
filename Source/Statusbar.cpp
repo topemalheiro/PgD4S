@@ -478,7 +478,7 @@ Statusbar::Statusbar(PluginProcessor* processor, PluginEditor* e)
     detectiveSpeedSlider->setRange(0.1, 5.0, 0.1);
     detectiveSpeedSlider->setValue(Connection::getDebugSpeedMultiplier(), dontSendNotification);
     detectiveSpeedSlider->setTooltip("Debug message travel speed");
-    detectiveSpeedSlider->setEnabled(detectiveModeButton->getToggleState());
+    // Always usable, so the speed can be set before turning Detective Mode on
     detectiveSpeedSlider->onValueChange = [this] {
         auto const speed = static_cast<float>(detectiveSpeedSlider->getValue());
         Connection::setDebugSpeedMultiplier(speed);
@@ -527,12 +527,6 @@ void Statusbar::setDetectiveModeEnabled(bool enabled)
 {
     if (detectiveModeButton)
         detectiveModeButton->setToggleState(enabled, dontSendNotification);
-}
-
-void Statusbar::setDetectiveSpeedSliderEnabled(bool enabled)
-{
-    if (detectiveSpeedSlider)
-        detectiveSpeedSlider->setEnabled(enabled);
 }
 
 void Statusbar::paint(Graphics& g)
