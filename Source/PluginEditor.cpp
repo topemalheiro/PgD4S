@@ -717,8 +717,13 @@ void PluginEditor::resized()
         if (touchMode) {
             if(leftExpanded) statusbarBounds = statusbarBounds.withX(leftSidebar->getRight());
             if(rightExpanded) statusbarBounds = statusbarBounds.withRight(rightSidebar->getX());
-            touchSelectionHelper->setBounds(statusbarBounds.withSizeKeepingCentre(192, 46));
-            statusbar->setBounds(statusbarBounds.removeFromLeft(Statusbar::getDesiredWidth()).translated(leftSidebar->getX() + 4, 0));
+            auto helperBounds = statusbarBounds.withSizeKeepingCentre(192, 46);
+            auto const barBounds = statusbarBounds.removeFromLeft(Statusbar::getDesiredWidth()).translated(leftSidebar->getX() + 4, 0);
+            // PgD4S: the status bar can reach past the centre now. The selection helper then sits to its right instead of covering it
+            if (helperBounds.getX() < barBounds.getRight() + 4)
+                helperBounds.setX(barBounds.getRight() + 4);
+            touchSelectionHelper->setBounds(helperBounds);
+            statusbar->setBounds(barBounds);
         } else {
             statusbar->setBounds(statusbarBounds.withSizeKeepingCentre(Statusbar::getDesiredWidth(), 46));
         }

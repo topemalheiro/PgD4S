@@ -57,6 +57,91 @@ public:
     SmallIconButton chevron = SmallIconButton(Icons::ThinDown);
 };
 
+// The edit/run button as upstream's status bar has it now: the mode's icon and name, at the right end of the
+// bar, with the other canvas modes behind the chevron
+class EditModeButton final : public Component {
+public:
+    // Draws the icon and the name as one text. Brightens on hover by itself, independently from the chevron
+    struct MainButton final : public TextButton {
+        String icon;
+        String text;
+        bool active = false;
+
+        MainButton()
+        {
+            setRepaintsOnMouseActivity(true);
+        }
+
+        void setContent(String const& newIcon, String const& newText, bool const isActive)
+        {
+            icon = newIcon;
+            text = newText;
+            active = isActive;
+            repaint();
+        }
+
+        void paint(Graphics& g) override
+        {
+            if (text.isEmpty())
+                return;
+
+            auto colour = active ? PlugDataColours::toolbarActiveColour : PlugDataColours::toolbarTextColour;
+            if (!isEnabled())
+                colour = Colours::grey;
+            else if (isMouseOver())
+                colour = colour.brighter(0.8f);
+
+            AttributedString attributedText;
+            attributedText.setJustification(Justification::centredRight);
+            attributedText.append(icon, Fonts::getIconFont().withHeight(13.0f), colour);
+            attributedText.append("  " + text, Fonts::getSemiBoldFont().withHeight(14.0f), colour);
+
+            TextLayout layout;
+            layout.createLayout(attributedText, static_cast<float>(getWidth()));
+            auto const yOffset = (getHeight() - layout.getHeight()) * 0.5f;
+            layout.draw(g, Rectangle<float>(0.0f, yOffset, static_cast<float>(getWidth()), layout.getHeight()));
+        }
+    };
+
+    EditModeButton()
+    {
+        mainButton.setClickingTogglesState(false);
+        addAndMakeVisible(mainButton);
+        addAndMakeVisible(chevron);
+        setLocked(false);
+    }
+
+    void resized() override
+    {
+        auto b = getLocalBounds();
+        constexpr int chevronWidth = 16;
+        chevron.setBounds(b.removeFromRight(chevronWidth).expanded(2));
+        mainButton.setBounds(b);
+    }
+
+    // PgD4S: presentation mode has its own button, so this one only shows the lock
+    void setLocked(bool const locked)
+    {
+        mainButton.setContent(locked ? Icons::Lock : Icons::Edit, locked ? "Run" : "Edit", locked);
+    }
+
+    void setTooltip(String const& tooltip, String const& chevronTooltip)
+    {
+        mainButton.setTooltip(tooltip);
+        chevron.setTooltip(chevronTooltip);
+    }
+
+    void setEnabled(bool shouldBeEnabled)
+    {
+        Component::setEnabled(shouldBeEnabled);
+        mainButton.setEnabled(shouldBeEnabled);
+        chevron.setEnabled(shouldBeEnabled);
+    }
+
+    MainButton mainButton;
+    SmallIconButton chevron = SmallIconButton(Icons::ThinDown);
+};
+
 class DetectiveModeButton final : public TextButton {
 public:
     using TextButton::TextButton;
@@ -349,8 +434,7 @@ Statusbar::Statusbar(PluginProcessor* processor, PluginEditor* e)
         OverlayDisplaySettings::show(editor, overlayGroup->chevron.getScreenBounds());
     };
 
-    editModeGroup = std::make_unique<StatusbarButtonGroup>(Icons::Edit);
-    editModeGroup->mainButton.setClickingTogglesState(false);
+    editModeGroup = std::make_unique<EditModeButton>();
     addAndMakeVisible(*editModeGroup);
 
     editModeGroup->mainButton.onClick = [this] {
@@ -435,7 +519,7 @@ void Statusbar::setEditButtonState(bool locked, bool present)
 {
     // PgD4S: presentation mode shows on its own button; the edit/run button shows the lock, which
     // presentation mode can be in or out of (unlocked, it edits the presentation layout)
-    editModeGroup->mainButton.setButtonText(locked ? Icons::Lock : Icons::Edit);
+    editModeGroup->setLocked(locked);
     presentationButton->setToggleState(present, dontSendNotification);
 }
 
@@ -476,9 +560,9 @@ void Statusbar::paint(Graphics& g)
         g.drawLine(x, 9.0f, x, getHeight() - 9.0f);
     };
 
-    drawSep(*presentationButton);
     drawSep(*zoomSelector);
     drawSep(*overlayGroup);
+    drawSep(*detectiveSpeedSlider);
 }
 
 void Statusbar::resized()
@@ -488,14 +572,7 @@ void Statusbar::resized()
     bool const floatingPanels = SettingsFile::getInstance()->getProperty<bool>("floating_panels");
     auto b = floatingPanels ? getLocalBounds().reduced(margin, 0) : getLocalBounds().withTrimmedLeft(margin);
 
-    // PgD4S: the canvas modes come first, in the corner where Max keeps its lock and presentation
-    // buttons; in the middle, touch mode's selection helper covers them while editing
     // Keep these widths in step with getDesiredWidth(), which sizes the floating status bar
-    editModeGroup->setBounds(b.removeFromLeft(editModeWidth));
-    b.removeFromLeft(presentationGap);
-    presentationButton->setBounds(b.removeFromLeft(presentationWidth));
-    b.removeFromLeft(spacing);
-
     zoomSelector->setBounds(b.removeFromLeft(zoomWidth));
     b.removeFromLeft(spacing);
 
@@ -509,4 +586,11 @@ void Statusbar::resized()
     b.removeFromLeft(detectiveGap);
 
     detectiveSpeedSlider->setBounds(b.removeFromLeft(detectiveSliderWidth));
+    b.removeFromLeft(spacing);
+
+    // PgD4S: the canvas modes come last, as in upstream's status bar: the presentation button (PgD4S's own,
+    // as in a Max patcher window), then the edit/run button with the mode's name
+    presentationButton->setBounds(b.removeFromLeft(presentationWidth));
+    b.removeFromLeft(presentationGap);
+    editModeGroup->setBounds(b.removeFromLeft(editModeWidth));
 }

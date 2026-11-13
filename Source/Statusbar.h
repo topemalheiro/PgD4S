@@ -16,6 +16,7 @@ class PluginProcessor;
 class LatencyDisplayButton;
 class ZoomLabel;
 class StatusbarButtonGroup;
+class EditModeButton;
 class PresentationModeButton;
 
 class Statusbar;
@@ -40,7 +41,7 @@ public:
     // Widths used by resized(), so the floating status bar can be made wide enough for all its items
     static constexpr int margin = 6;
     static constexpr int spacing = 10;
-    static constexpr int editModeWidth = 34;
+    static constexpr int editModeWidth = 78; // icon, name ("Edit" or "Run") and chevron
     static constexpr int presentationGap = 4;
     static constexpr int presentationWidth = 22;
     static constexpr int zoomWidth = 55;
@@ -53,8 +54,8 @@ public:
     // Width that fits every item, with a margin on both sides (the floating status bar's width)
     static constexpr int getDesiredWidth()
     {
-        return margin + editModeWidth + presentationGap + presentationWidth + spacing + zoomWidth + spacing + gridWidth + spacing
-            + overlayWidth + spacing + detectiveButtonWidth + detectiveGap + detectiveSliderWidth + margin;
+        return margin + zoomWidth + spacing + gridWidth + spacing + overlayWidth + spacing + detectiveButtonWidth + detectiveGap
+            + detectiveSliderWidth + spacing + presentationWidth + presentationGap + editModeWidth + margin;
     }
 
 private:
@@ -72,7 +73,7 @@ private:
     std::unique_ptr<ZoomLabel> zoomSelector;
     std::unique_ptr<StatusbarButtonGroup> gridGroup;
     std::unique_ptr<StatusbarButtonGroup> overlayGroup;
-    std::unique_ptr<StatusbarButtonGroup> editModeGroup;
+    std::unique_ptr<EditModeButton> editModeGroup;
     std::unique_ptr<PresentationModeButton> presentationButton; // PgD4S: one click to presentation mode, as in Max
     std::unique_ptr<TextButton> detectiveModeButton;
     std::unique_ptr<Slider> detectiveSpeedSlider;
