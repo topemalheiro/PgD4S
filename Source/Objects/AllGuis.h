@@ -51,6 +51,7 @@ struct t_fake_button {
     t_symbol* x_bindname;
     int x_mode;
     int x_oval;
+    int x_oval_outline;
     int x_theme;
     int x_transparent;
     int x_x;

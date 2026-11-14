@@ -16,6 +16,7 @@ class ButtonObject final : public ObjectBase {
     Value sizeProperty = SynchronousValue();
     Value readOnly = SynchronousValue();
     Value oval = SynchronousValue();
+    Value ovalOutline = SynchronousValue();
 
     // PgD4S: a button with its own text (Max's live.text), stored as attributes ("#X attr"), as ELSE's
     // button has no arguments for them
@@ -48,6 +49,7 @@ public:
         objectParameters.addParamColourBG(&secondaryColour);
         objectParameters.addParamBool("Transparent", cAppearance, &transparent, { "No", "Yes" });
         objectParameters.addParamBool("Oval", cAppearance, &oval, { "No", "Yes" });
+        objectParameters.addParamBool("Oval outline", cAppearance, &ovalOutline, { "No", "Yes" }, 1);
         objectParameters.addParamBool("Read Only", cGeneral, &readOnly, { "No", "Yes" });
 
         objectParameters.addParamString("Text", cLabel, &text, "");
@@ -145,6 +147,7 @@ public:
             sizeProperty = VarArray(button->x_w, button->x_h);
             readOnly = button->x_readonly;
             oval = button->x_oval;
+            ovalOutline = button->x_oval_outline;
             // PgD4S: lit as Pd has it (set by the patch before this view opened, a loadbang)
             if (button->x_mode != 2)
                 state = button->x_state != 0;
@@ -359,8 +362,10 @@ public:
         auto const b = getLocalBounds().toFloat();
 
         auto fillColour = getValue<bool>(transparent) ? nvgRGBA(0, 0, 0, 0) : bgCol;
-        // PgD4S: an oval button (Live's round live.button, converted) is round outside too, lit or not
-        auto const boxRadius = getValue<bool>(oval) ? std::min(b.getWidth(), b.getHeight()) * 0.5f : Corners::objectCornerRadius;
+        // An oval button's outline is round too ("Oval outline", on by default, as ELSE draws it in Pd), so Live's
+        // round live.button, converted, is round lit or not
+        auto const roundOutline = getValue<bool>(oval) && getValue<bool>(ovalOutline);
+        auto const boxRadius = roundOutline ? std::min(b.getWidth(), b.getHeight()) * 0.5f : Corners::objectCornerRadius;
         nvgDrawRoundedRect(nvg, b.getX(), b.getY(), b.getWidth(), b.getHeight(), fillColour, object->isSelected() ? nvgColour(PlugDataColours::objectSelectedOutlineColour) : nvgColour(PlugDataColours::objectOutlineColour), boxRadius);
 
         auto radius = getValue<bool>(oval) ? getWidth() : Corners::objectCornerRadius;
@@ -439,6 +444,12 @@ public:
             }
             repaint();
         }
+        if (value.refersToSameSourceAs(ovalOutline)) {
+            if (auto button = ptr.get<t_fake_button>()) {
+                button->x_oval_outline = getValue<bool>(ovalOutline);
+            }
+            repaint();
+        }
         if (value.refersToSameSourceAs(readOnly)) {
             if (auto button = ptr.get<t_fake_button>()) {
                 button->x_readonly = getValue<bool>(readOnly);
@@ -501,6 +512,13 @@ public:
         case hash("oval"): {
             if (atoms.size() >= 1) {
                 setParameterExcludingListener(oval, atoms[0].getFloat());
+                repaint();
+            }
+            break;
+        }
+        case hash("ovaloutline"): {
+            if (atoms.size() >= 1) {
+                setParameterExcludingListener(ovalOutline, atoms[0].getFloat());
                 repaint();
             }
             break;
